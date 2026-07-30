@@ -17,6 +17,7 @@ import sheets
 import gmail_client
 import linkedin_helper
 import rejection_scanner
+import link_finder
 from date_utils import parse_date
 
 
@@ -55,6 +56,11 @@ def cmd_update_status(args):
 def cmd_scan_rejections(args):
     since = parse_date(args.since) if args.since else None
     rejection_scanner.scan(days_back=args.days, dry_run=args.dry_run, since_date=since)
+
+
+def cmd_scan_job_links(args):
+    since = parse_date(args.since) if args.since else None
+    link_finder.scan(days_back=args.days, dry_run=args.dry_run, since_date=since)
 
 
 NETWORKING_KEYWORDS = (
@@ -145,6 +151,12 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="Show what would change without writing to the sheet")
     p.add_argument("--since", help="Only consider applications applied on/after this date (YYYY-MM-DD)")
     p.set_defaults(func=cmd_scan_rejections)
+
+    p = sub.add_parser("scan-job-links", help="Scan Gmail confirmation emails to auto-fill missing Job Link column")
+    p.add_argument("--days", type=int, default=365, help="How many days back to search (default 365)")
+    p.add_argument("--dry-run", action="store_true", help="Show what would change without writing to the sheet")
+    p.add_argument("--since", help="Only consider applications applied on/after this date (YYYY-MM-DD)")
+    p.set_defaults(func=cmd_scan_job_links)
 
     p = sub.add_parser("export-past-outreach", help="Save your past sent networking emails to a file, for tone/format reference")
     p.add_argument("--limit", type=int, default=50)

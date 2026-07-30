@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+*.pyc
+credentials.json
+token.json
+.env
+past_outreach.txt
+.claude/

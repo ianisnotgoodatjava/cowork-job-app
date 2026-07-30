@@ -6,10 +6,10 @@ exactly one still-'applied' row's company name appears in the email. If
 multiple rows share a company name, it's reported instead of guessed at.
 """
 
-import re
 import gmail_client
 import sheets
 from date_utils import parse_date
+from company_match import company_mentioned
 
 REJECTION_PHRASES = [
     "unfortunately",
@@ -23,17 +23,6 @@ REJECTION_PHRASES = [
     "pursue other candidates",
     "will not be proceeding",
 ]
-
-_SUFFIX_RE = re.compile(
-    r"\b(inc|llc|ltd|corp|corporation|co|company|group|holdings|partners|lp|llp)\.?\b",
-    re.IGNORECASE,
-)
-
-
-def _normalize(name: str) -> str:
-    name = _SUFFIX_RE.sub("", name)
-    name = re.sub(r"[^a-z0-9 ]", "", name.lower())
-    return re.sub(r"\s+", " ", name).strip()
 
 
 def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
@@ -61,10 +50,7 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
 
     for msg in messages:
         haystack = f"{msg['subject']} {msg['from']} {msg['snippet']}".lower()
-        matches = [
-            r for r in applied_rows
-            if _normalize(r["Company"]) and _normalize(r["Company"]) in haystack
-        ]
+        matches = [r for r in applied_rows if company_mentioned(r["Company"], haystack)]
 
         if len(matches) == 1:
             row = matches[0]

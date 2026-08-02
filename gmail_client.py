@@ -23,13 +23,14 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
         full = svc.users().messages().get(
             userId="me", id=msg["id"],
             format="full" if include_body else "metadata",
-            metadataHeaders=["Subject", "From", "Date"],
+            metadataHeaders=["Subject", "From", "To", "Date"],
         ).execute()
         headers = {h["name"]: h["value"] for h in full["payload"]["headers"]}
         entry = {
             "id": msg["id"],
             "subject": headers.get("Subject", ""),
             "from": headers.get("From", ""),
+            "to": headers.get("To", ""),
             "date": headers.get("Date", ""),
             "snippet": full.get("snippet", ""),
         }

@@ -19,6 +19,7 @@ import linkedin_helper
 import rejection_scanner
 import link_finder
 import app_scanner
+import auto_pipeline
 import sheet_format
 from date_utils import parse_date
 import email_drafter
@@ -77,6 +78,10 @@ def cmd_color_rows(args):
 def cmd_sort_by_date(args):
     sheets.sort_by_applied_date()
     print("Sheet sorted by applied date (oldest at top, newest at bottom).")
+
+
+def cmd_auto(args):
+    auto_pipeline.run(days_back=args.days, dry_run=args.dry_run)
 
 
 def cmd_sync(args):
@@ -234,6 +239,11 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="Show what would change without writing to the sheet")
     p.add_argument("--since", help="Only consider applications applied on/after this date (YYYY-MM-DD)")
     p.set_defaults(func=cmd_scan_job_links)
+
+    p = sub.add_parser("auto", help="Full automated pass: add new applications, detect rejections, sort, color, and report rows ready for outreach")
+    p.add_argument("--days", type=int, default=30, help="Look back this many days (default 30)")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_auto)
 
     p = sub.add_parser("sync", help="Full sync: add new applications from Gmail, detect rejections, sort by date, color-code")
     p.add_argument("--days", type=int, default=730, help="How many days back to search (default 730)")

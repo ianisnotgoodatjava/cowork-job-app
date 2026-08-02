@@ -6,6 +6,7 @@ Same conservative matching as rejection_scanner: only auto-fills when
 exactly one row (missing a Job Link) matches the email's company.
 """
 
+import html
 import re
 import gmail_client
 import sheets
@@ -24,16 +25,48 @@ CONFIRMATION_PHRASES = [
     "thank you for your interest",
 ]
 
-_URL_RE = re.compile(r"https?://[^\s\]\)>\"']+")
+_URL_RE = re.compile(r"https?://[^\s\]\)<>\"']+")
 _SKIP_URL_PATTERNS = ("unsubscribe", "privacy", "terms-of-service", "optout", "preferences", "urldefense.proofpoint.com", "linkedin.com/help")
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")
 _JOB_URL_HINTS = ("/job", "/jobs", "career", "position", "/apply", "requisition")
+
+_TITLE_STOPWORDS = {
+    "analyst", "associate", "senior", "junior", "the", "and", "for", "role",
+    "position", "job", "id", "new", "york", "ny", "nyc", "chicago", "il",
+    "boston", "ma", "remote", "at", "in", "of", "a", "an", "to", "with",
+    "your", "you", "thank", "thanks", "applying", "application", "interest",
+    "we", "have", "received", "been", "has", "was", "submitted", "re",
+}
+
+
+def _title_tokens(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return {w for w in words if w not in _TITLE_STOPWORDS and len(w) > 2}
+
+
+def _disambiguate(matches: list[dict], msg: dict) -> dict | None:
+    """When multiple rows share a company, pick the one whose Position most
+    distinctly overlaps the email subject (e.g. 'RMBS' vs 'CMBS' vs
+    'Municipal Markets'). Returns None if no row is a clear unique best."""
+    subject_tokens = _title_tokens(msg["subject"])
+    if not subject_tokens:
+        return None
+    scored = sorted(
+        ((len(_title_tokens(r["Position"]) & subject_tokens), r) for r in matches),
+        key=lambda pair: -pair[0],
+    )
+    best_score = scored[0][0]
+    if best_score > 0 and (len(scored) == 1 or scored[1][0] < best_score):
+        return scored[0][1]
+    return None
 
 
 def _best_job_url(body: str) -> str | None:
     """Only returns a URL when it clearly looks like a job posting/apply
     link. Returns None (rather than guessing a random link) otherwise."""
-    urls = [u.rstrip(".,;") for u in _URL_RE.findall(body)]
+    urls = [html.unescape(u.rstrip(".,;")) for u in _URL_RE.findall(body)]
     urls = [u for u in urls if not any(skip in u.lower() for skip in _SKIP_URL_PATTERNS)]
+    urls = [u for u in urls if not u.lower().split("?")[0].endswith(_IMAGE_EXTENSIONS)]
     hinted = [u for u in urls if any(hint in u.lower() for hint in _JOB_URL_HINTS)]
     if hinted:
         return max(hinted, key=len)
@@ -66,12 +99,18 @@ def scan(days_back: int = 365, dry_run: bool = False, since_date=None) -> None:
         haystack = f"{msg['subject']} {msg['from']} {msg.get('body', '')}".lower()
         matches = [r for r in target_rows if company_mentioned(r["Company"], haystack)]
 
-        if len(matches) != 1:
-            if len(matches) > 1:
+        row = None
+        if len(matches) == 1:
+            row = matches[0]
+        elif len(matches) > 1:
+            row = _disambiguate(matches, msg)
+            if row is None:
                 ambiguous.append((matches, msg))
+                continue
+
+        if row is None:
             continue
 
-        row = matches[0]
         url = _best_job_url(msg.get("body", ""))
         if not url:
             no_link_found.append((row, msg))

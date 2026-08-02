@@ -89,3 +89,11 @@ def list_rows() -> list[dict]:
         padded = values + [""] * (len(HEADERS) - len(values))
         rows.append({"row_number": i, **dict(zip(HEADERS, padded))})
     return rows
+
+
+def get_row(row_number: int) -> dict:
+    """Return a single row by its 1-indexed sheet row number."""
+    for row in list_rows():
+        if row["row_number"] == row_number:
+            return row
+    raise ValueError(f"No application on row {row_number}")

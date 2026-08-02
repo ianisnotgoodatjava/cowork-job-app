@@ -159,7 +159,7 @@ def cmd_save_contact(args):
 
 def cmd_draft_outreach_email(args):
     body = _read_body(args)
-    gmail_client.create_draft(args.to, args.subject, body)
+    gmail_client.create_draft(args.to, args.subject, body, attachments=args.attach)
     sheets.update_row(args.row, {"Outreach Email Status": "drafted"})
     print(f"Outreach draft created in Gmail and row {args.row} updated. Review and send from Gmail.")
 
@@ -285,6 +285,7 @@ def main():
     p.add_argument("--subject", required=True)
     p.add_argument("--body")
     p.add_argument("--body-file")
+    p.add_argument("--attach", action="append", default=[], help="Path to attach (e.g. resume.pdf), repeatable")
     p.set_defaults(func=cmd_draft_outreach_email)
 
     p = sub.add_parser("auto-draft-outreach", help="Auto-generate an outreach email from a row, matching your past networking tone, and create it as a Gmail draft")

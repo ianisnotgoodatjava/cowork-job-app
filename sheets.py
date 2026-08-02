@@ -97,3 +97,34 @@ def get_row(row_number: int) -> dict:
         if row["row_number"] == row_number:
             return row
     raise ValueError(f"No application on row {row_number}")
+
+
+def sort_by_applied_date() -> None:
+    """Rewrites all data rows ordered by applied date, oldest first.
+
+    Sorts in Python rather than via the Sheets sort API because the date
+    column is free-text with mixed formats ('6/18', '6/18/2026') that a
+    lexicographic sheet sort would order wrongly.
+    """
+    from date_utils import parse_date
+    import datetime
+
+    rows = list_rows()
+    if not rows:
+        return
+
+    def key(row):
+        d = parse_date(row.get("Applied Draes", ""))
+        # Undated rows sink to the bottom rather than silently leading the sheet.
+        return d or datetime.date.max
+
+    ordered = sorted(rows, key=key)
+    values = [[r.get(h, "") for h in HEADERS] for r in ordered]
+
+    svc = _service()
+    svc.spreadsheets().values().update(
+        spreadsheetId=SHEET_ID,
+        range=f"{SHEET_TAB}!A2",
+        valueInputOption="RAW",
+        body={"values": values},
+    ).execute()

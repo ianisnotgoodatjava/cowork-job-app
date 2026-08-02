@@ -18,6 +18,8 @@ import gmail_client
 import linkedin_helper
 import rejection_scanner
 import link_finder
+import app_scanner
+import sheet_format
 from date_utils import parse_date
 import email_drafter
 
@@ -62,6 +64,34 @@ def cmd_scan_rejections(args):
 def cmd_scan_job_links(args):
     since = parse_date(args.since) if args.since else None
     link_finder.scan(days_back=args.days, dry_run=args.dry_run, since_date=since)
+
+
+def cmd_scan_new_applications(args):
+    app_scanner.scan(days_back=args.days, dry_run=args.dry_run)
+
+
+def cmd_color_rows(args):
+    sheet_format.apply_status_colors(dry_run=args.dry_run)
+
+
+def cmd_sort_by_date(args):
+    sheets.sort_by_applied_date()
+    print("Sheet sorted by applied date (oldest at top, newest at bottom).")
+
+
+def cmd_sync(args):
+    print("=== 1/4: adding new applications found in Gmail ===")
+    app_scanner.scan(days_back=args.days, dry_run=args.dry_run)
+    print("\n=== 2/4: detecting rejections ===")
+    rejection_scanner.scan(days_back=args.days, dry_run=args.dry_run)
+    print("\n=== 3/4: sorting by applied date ===")
+    if args.dry_run:
+        print("(dry-run — skipped)")
+    else:
+        sheets.sort_by_applied_date()
+        print("Sorted oldest-first.")
+    print("\n=== 4/4: color-coding by status ===")
+    sheet_format.apply_status_colors(dry_run=args.dry_run)
 
 
 NETWORKING_KEYWORDS = (
@@ -175,6 +205,23 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="Show what would change without writing to the sheet")
     p.add_argument("--since", help="Only consider applications applied on/after this date (YYYY-MM-DD)")
     p.set_defaults(func=cmd_scan_job_links)
+
+    p = sub.add_parser("sync", help="Full sync: add new applications from Gmail, detect rejections, sort by date, color-code")
+    p.add_argument("--days", type=int, default=730, help="How many days back to search (default 730)")
+    p.add_argument("--dry-run", action="store_true", help="Show what would change without writing")
+    p.set_defaults(func=cmd_sync)
+
+    p = sub.add_parser("scan-new-applications", help="Find applications in Gmail that aren't in the sheet yet and add them")
+    p.add_argument("--days", type=int, default=730)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_scan_new_applications)
+
+    p = sub.add_parser("color-rows", help="Color-code rows: red = rejected, green = interview/offer")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_color_rows)
+
+    p = sub.add_parser("sort-by-date", help="Sort the sheet by applied date, oldest at top")
+    p.set_defaults(func=cmd_sort_by_date)
 
     p = sub.add_parser("export-past-outreach", help="Save your past sent networking emails to a file, for tone/format reference")
     p.add_argument("--limit", type=int, default=50)

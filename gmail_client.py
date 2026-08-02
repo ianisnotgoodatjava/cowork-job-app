@@ -40,10 +40,20 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
 
 
 def _extract_body(payload: dict) -> str:
-    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
+    """Prefers text/plain, but falls back to text/html (decoded, tags kept
+    intact) since many ATS confirmation emails are HTML-only and the job
+    link only exists as an <a href="..."> attribute, not visible text."""
+    plain = _extract_mimetype(payload, "text/plain")
+    if plain:
+        return plain
+    return _extract_mimetype(payload, "text/html")
+
+
+def _extract_mimetype(payload: dict, mimetype: str) -> str:
+    if payload.get("mimeType") == mimetype and payload.get("body", {}).get("data"):
         return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
     for part in payload.get("parts", []) or []:
-        text = _extract_body(part)
+        text = _extract_mimetype(part, mimetype)
         if text:
             return text
     return ""

@@ -19,6 +19,7 @@ import linkedin_helper
 import rejection_scanner
 import link_finder
 from date_utils import parse_date
+import email_drafter
 
 
 def cmd_log_application(args):

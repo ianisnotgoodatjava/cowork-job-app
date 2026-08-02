@@ -6,3 +6,5 @@ token.json
 .env
 past_outreach.txt
 .claude/
+career-ops/
+.DS_Store

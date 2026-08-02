@@ -113,6 +113,35 @@ def cmd_export_past_outreach(args):
     print(f"Saved to {args.out} — reference this for tone/format when drafting new outreach emails.")
 
 
+def cmd_build_outreach_corpus(args):
+    import outreach_corpus
+    outreach_corpus.build(max_results=args.limit)
+
+
+def cmd_outreach_examples(args):
+    import outreach_retrieval as orx
+    row = sheets.get_row(args.row)
+    query = orx.build_query(
+        company=row.get("Company", ""),
+        area=args.area or "",
+        title=row.get("Contact Title", ""),
+        role=row.get("Position", ""),
+    )
+    print(f"Query: {query}\n")
+    idx = orx.load_index()
+    hits = idx.search(query, k=args.k)
+    if not hits:
+        print("No similar past outreach emails found.")
+        return
+    for score, rec in hits:
+        print("=" * 70)
+        print(f"similarity {score:.3f} | {rec['date']} | to: {rec['to']}")
+        print(f"Subject: {rec['subject']}")
+        print("-" * 70)
+        print(rec["body"].strip())
+        print()
+
+
 def cmd_find_contact_link(args):
     url = linkedin_helper.people_search_url(args.company, args.keywords)
     print("Open this in your browser (LinkedIn requires a logged-in human, not automation):")
@@ -227,6 +256,16 @@ def main():
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--out", default="past_outreach.txt")
     p.set_defaults(func=cmd_export_past_outreach)
+
+    p = sub.add_parser("build-outreach-corpus", help="Index your past sent outreach emails for retrieval")
+    p.add_argument("--limit", type=int, default=500)
+    p.set_defaults(func=cmd_build_outreach_corpus)
+
+    p = sub.add_parser("outreach-examples", help="Show your most similar past outreach emails for a row, to base a new draft on")
+    p.add_argument("--row", type=int, required=True)
+    p.add_argument("--area", help="Team/subject area to weight the search (e.g. 'RMBS')")
+    p.add_argument("-k", type=int, default=3, help="How many examples to show")
+    p.set_defaults(func=cmd_outreach_examples)
 
     p = sub.add_parser("find-contact-link", help="Print a LinkedIn people-search URL to browse manually")
     p.add_argument("--company", required=True)

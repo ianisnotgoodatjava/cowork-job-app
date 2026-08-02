@@ -9,8 +9,19 @@ def _first_name(full_name: str) -> str:
     return full_name.strip().split()[0] if full_name.strip() else "there"
 
 
+def _clean_position(row: dict) -> str:
+    """Some sheet rows already have 'at {Company}' baked into the Position
+    text (e.g. 'Analyst (NY) at KBRA'). Strip that so it isn't duplicated
+    when the template adds its own 'at {company}' phrasing."""
+    position = (row.get("Position") or "").strip()
+    company = (row.get("Company") or "").strip()
+    if company and position.lower().endswith(f" at {company.lower()}"):
+        position = position[: -(len(company) + 4)].strip()
+    return position
+
+
 def _subject_area(row: dict) -> str:
-    title = (row.get("Contact Title") or row.get("Position") or "the team").strip()
+    title = (row.get("Contact Title") or "").strip() or _clean_position(row) or "the team"
     company = (row.get("Company") or "the company").strip()
     if title.lower().endswith(f" at {company.lower()}"):
         return title
@@ -22,7 +33,7 @@ def _subject_area(row: dict) -> str:
 def _team_phrase(row: dict) -> str:
     title = (row.get("Contact Title") or "").strip()
     company = (row.get("Company") or "").strip()
-    position = (row.get("Position") or "").strip()
+    position = _clean_position(row)
 
     if title and company and title.lower() not in company.lower():
         if any(w in title.lower() for w in ("team", "group", "department", "division")):
@@ -39,7 +50,7 @@ def _team_phrase(row: dict) -> str:
 
 def _interest_paragraph(row: dict) -> str:
     company = (row.get("Company") or "the company").strip()
-    position = (row.get("Position") or "this role").strip()
+    position = _clean_position(row) or "this role"
     requirements = (row.get("Requirements") or "").strip()
     contact_title = (row.get("Contact Title") or "").strip()
     location = (row.get("location") or "").strip()

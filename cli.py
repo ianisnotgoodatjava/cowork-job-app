@@ -105,6 +105,23 @@ def cmd_draft_outreach_email(args):
     print(f"Outreach draft created in Gmail and row {args.row} updated. Review and send from Gmail.")
 
 
+def cmd_auto_draft_outreach(args):
+    row = sheets.get_row(args.row)
+    if args.follow_up:
+        subject, body = email_drafter.generate_follow_up(row)
+    else:
+        subject, body = email_drafter.generate_outreach(row)
+
+    if args.dry_run:
+        print(f"Subject: {subject}\n\n{body}")
+        return
+
+    gmail_client.create_draft(args.to, subject, body, attachments=args.attach)
+    sheets.update_row(args.row, {"Outreach Email Status": "drafted"})
+    print(f"Draft created in Gmail for row {args.row} ({row.get('Company', '')}) -> {args.to}")
+    print(f"Subject: {subject}\n\n{body}")
+
+
 def cmd_draft_application_email(args):
     body = _read_body(args)
     gmail_client.create_draft(args.to, args.subject, body, attachments=args.attach)
@@ -183,6 +200,14 @@ def main():
     p.add_argument("--body")
     p.add_argument("--body-file")
     p.set_defaults(func=cmd_draft_outreach_email)
+
+    p = sub.add_parser("auto-draft-outreach", help="Auto-generate an outreach email from a row, matching your past networking tone, and create it as a Gmail draft")
+    p.add_argument("--row", type=int, required=True)
+    p.add_argument("--to", required=True)
+    p.add_argument("--follow-up", action="store_true", help="Generate a follow-up instead of the initial outreach")
+    p.add_argument("--attach", action="append", default=[], help="Path to attach (e.g. resume.pdf), repeatable")
+    p.add_argument("--dry-run", action="store_true", help="Print the generated email without creating a Gmail draft")
+    p.set_defaults(func=cmd_auto_draft_outreach)
 
     p = sub.add_parser("draft-application-email", help="Create a Gmail draft to apply via email")
     p.add_argument("--row", type=int, required=True)

@@ -20,6 +20,7 @@ import rejection_scanner
 import link_finder
 import app_scanner
 import auto_pipeline
+import draft_cleanup
 import sheet_format
 from date_utils import parse_date
 import email_drafter
@@ -82,6 +83,10 @@ def cmd_sort_by_date(args):
 
 def cmd_auto(args):
     auto_pipeline.run(days_back=args.days, dry_run=args.dry_run)
+
+
+def cmd_cleanup_drafts(args):
+    draft_cleanup.run(dry_run=args.dry_run)
 
 
 def cmd_sync(args):
@@ -225,7 +230,7 @@ def main():
 
     p = sub.add_parser("update-status", help="Update the Status column (applied/rejected/interview/offer)")
     p.add_argument("--row", type=int, required=True)
-    p.add_argument("--status", required=True, choices=["applied", "rejected", "interview", "offer"])
+    p.add_argument("--status", required=True, choices=["applied", "rejected", "interview", "interview-rejected", "offer"])
     p.set_defaults(func=cmd_update_status)
 
     p = sub.add_parser("scan-rejections", help="Scan Gmail for rejection emails and auto-update matching rows")
@@ -244,6 +249,10 @@ def main():
     p.add_argument("--days", type=int, default=30, help="Look back this many days (default 30)")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_auto)
+
+    p = sub.add_parser("cleanup-drafts", help="Delete outreach drafts for applications that were rejected")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_cleanup_drafts)
 
     p = sub.add_parser("sync", help="Full sync: add new applications from Gmail, detect rejections, sort by date, color-code")
     p.add_argument("--days", type=int, default=730, help="How many days back to search (default 730)")

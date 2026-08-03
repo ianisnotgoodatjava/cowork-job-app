@@ -1,0 +1,76 @@
+===== run at Sun Aug  2 22:13:30 EDT 2026 =====
+======================================================================
+AUTO PIPELINE — 2026-08-02
+======================================================================
+
+[1/4] New applications from Gmail
+Searching Gmail: in:inbox newer_than:30d ("thank you for applying" OR "thank you for your application" OR "application has been received" OR "your application to" OR "thanks for your interest" OR "application confirmation" OR "we have received your application" OR "your application was submitted" OR "thank you for your interest") -from:nyu.edu
+
+Found 48 candidate confirmation emails.
+
+3 application(s) not yet in the sheet:
+  7/13/2026  | First Horizon                       | Analyst  [new company]
+  7/14/2026  | Risk Analyst at Fanatics            | Analyst  [new company]
+  7/27/2026  | TikTok                              | AI Strategic Analyst - TikTok
+
+29 email(s) couldn't be parsed into company/role (skipped):
+  "Application Status with Kroll"
+  "Reminder: Your submission is saved as a draft"
+  "Reminder: Your submission is saved as a draft"
+  "Thank You for Applying with Voya"
+  "Thank you for applying to Analyst-Risk Management - 26011162"
+  "Please confirm your identity"
+  "Please confirm your identity"
+  "FHNF TRADING ASSISTANT at First Horizon- Position Filled"
+  "Thank you for your application!"
+  "Application Received – Associate, Investor Research & Insights  Position at FGS "
+  "City National Bank application status"
+  "Thank you for applying at City National Bank"
+  "Thank you for your application"
+  "Thank you for your interest in Piper Sandler"
+  "Thank you for your interest in KBRA!"
+  ... and 14 more
+
+Added 3 row(s) to the sheet.
+
+[2/4] Rejections from Gmail
+Searching Gmail: in:inbox newer_than:30d ("unfortunately" OR "not moving forward" OR "will not be moving forward" OR "decided to move forward with other" OR "decided to proceed with other candidates" OR "other candidates" OR "not selected" OR "position has been filled" OR "pursue other candidates" OR "will not be proceeding" OR "is now closed" OR "no longer under consideration" OR "not be moving forward" OR "moving forward with other" OR "decided not to move forward" OR "filled this position" OR "position is closed")
+
+Found 20 candidate rejection emails.
+
+Updated 1 row(s):
+  row 221: Analyst @ First Horizon <- "FHNF TRADING ASSISTANT at First Horizon- Position Filled"
+
+2 email(s) matched multiple applied rows (skipped, review manually):
+  "Your Application with StoneX" matched row 66, row 194
+  "Thank you for your interest in KBRA!" matched row 266, row 267
+
+13 email(s) matched the search but had no decisive rejection wording in the body (ignored — most are confirmations).
+
+4 rejection email(s) didn't match any applied company (ignored):
+  "Thank You for Applying with Voya" from "workday.admin voya" <godirect@myworkday.com>
+  "Application with CME Group" from CME Group Workday <myworkday@cmegroup.com>
+  "Status Update: 2026 Public Fixed Income Analyst - Job ID: 16173 position with MetLife" from MetLife Global Talent Acquisition <recruiting@metlifecareers.com>
+  "Your application for Research - APAC Equity - Taiwan Technology Associate (335093BR)" from UBS Careers <donotreply@ubs.com>
+
+[3/4] Sort + colour
+rejected (red): 69 | interview/offer (green): 0 | no fill: 218
+Applied formatting to 287 rows.
+
+[4/4] Ready for outreach (no contact saved yet)
+  row  267 | Huntington                     | Corporate & Specialty Banking Analyst  [already emailed someone there]
+  row  269 | Trigild                        | Analyst  [already emailed someone there]
+  row  274 | Conning                        | Analyst  [already emailed someone there]
+  row  276 | Risk Analyst at Fanatics       | Analyst  [already emailed someone there]
+  row  278 | Augment Risk                   | Analyst
+  row  281 | VanEck                         | Multi-Asset Solutions Analyst  [already emailed someone there]
+  row  282 | Fora Financial                 | Strategic Finance Analyst  [already emailed someone there]
+  row  283 | MasterCard                     | Analyst
+  row  284 | TikTok                         | AI Strategic Analyst - TikTok
+  row  285 | TikTok                         | AI Strategic Analyst
+  row  287 | American Express               | Analyst - Risk Management  [already emailed someone there]
+
+11 row(s) ready. To draft outreach for one:
+  python cli.py outreach-examples --row <N>
+  python cli.py draft-outreach-email --row <N> --to <email> --subject <...> --body-file <...> --attach ~/Ian_Liu_Resume.pdf
+

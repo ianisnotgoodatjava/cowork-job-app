@@ -9,3 +9,5 @@ past_outreach.txt
 career-ops/
 .DS_Store
 outreach_corpus.json
+_recipients_sample.json
+logs/

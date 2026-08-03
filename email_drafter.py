@@ -89,37 +89,72 @@ def _interest_paragraph(row: dict) -> str:
 
 
 def generate_outreach(row: dict) -> tuple[str, str]:
-    """Return (subject, body) for a networking outreach email."""
-    company = (row.get("Company") or "").strip()
-    contact_name = (row.get("Contact Name") or "").strip()
-    first = _first_name(contact_name) if contact_name else "there"
-    subject_area = _subject_area(row)
-    team_phrase = _team_phrase(row)
+    """Return (subject, body) for a networking outreach email.
 
-    subject = f"Recent NYU Graduate Inquiring about {subject_area}"
-    if company and company not in subject:
-        subject = f"{subject} at {company}"
+    Deliberately never mentions having applied. Ian's own most effective
+    emails lead with interest in the person's work — saying "I applied to X"
+    reads as transactional and invites a recruiting-process reply rather
+    than a conversation.
+    """
+    company = (row.get("Company") or "the firm").strip()
+    contact_name = (row.get("Contact Name") or "").strip()
+    contact_title = (row.get("Contact Title") or "").strip()
+    first = _first_name(contact_name) if contact_name else "there"
+    position = _clean_position(row)
+    # The middle paragraph carries the whole email. A generic version is
+    # always weaker than one written with real knowledge of the desk, so
+    # prefer the Job Description when it is filled in.
+    area = (row.get("Job Description") or "").strip()
+
+    subject = f"Recent NYU Graduate Inquiring about {_subject_area(row)}"
+
+    if contact_title:
+        hook = f"your experience {_lead_in(contact_title)} at {company}"
+    else:
+        hook = f"your work at {company}"
 
     greeting = f"Dear {first}," if contact_name else "Hello,"
-    intro = (
+    body = (
         f"{greeting}\n\n"
-        "I hope you're doing well. My name is Ian Liu. I recently graduated from NYU "
-        "with a degree in Mathematics and Economics and currently work at REDACTED. I "
-        f"came across your profile and wanted to reach out to learn more about {team_phrase}."
-    )
-    interest = _interest_paragraph(row)
-    closing = (
-        "If you have 15–20 minutes available for a brief call or coffee sometime in "
-        "the coming weeks, I would greatly appreciate the opportunity to learn more "
-        "about your career path and experiences. I've attached my resume for your "
-        "reference.\n\n"
-        "Thank you for your time and consideration. I look forward to hearing from you.\n\n"
-        "Sincerely,\n"
+        "I hope you're doing well. My name is Ian Liu. I recently graduated "
+        "from NYU with a degree in Mathematics and Economics and currently "
+        f"work at REDACTED. I came across your profile and was particularly "
+        f"interested in {hook}.\n\n"
+        f"{_interest_para(area, position, company)}\n\n"
+        "If you have 15-20 minutes over the next few weeks, I'd greatly "
+        "appreciate the opportunity to speak with you, either over the phone "
+        "or in person. I'd love to hear about your career path, what your "
+        "day-to-day work looks like, and any advice you might have for "
+        "someone looking to build a career in this area. I've attached my "
+        "resume for your reference.\n\n"
+        "Thank you for your time and consideration. I look forward to the "
+        "opportunity to connect.\n\n"
+        "Best regards,\n"
         "Ian Liu"
     )
-
-    body = f"{intro}\n\n{interest}\n\n{closing}"
     return subject, body
+
+
+def _interest_para(area: str, position: str, company: str) -> str:
+    subject = area.lower() if area else (position.lower() if position else "")
+    if subject:
+        opening = f"I've become increasingly interested in {subject} because of"
+    else:
+        opening = f"I've become increasingly interested in the work {company} does because of"
+    return (
+        f"{opening} the way it brings together analytical work and real "
+        "market decisions. I'm especially curious about how your team "
+        "approaches it day to day and what the work looks like up close."
+    )
+
+
+def _lead_in(title: str) -> str:
+    """'Senior Director, ABS' -> 'in ABS'; 'VP, Head of X' -> 'leading X'."""
+    t = title.strip()
+    if re.search(r"\bhead of\b", t, re.I):
+        return "leading " + re.sub(r".*\bhead of\b\s*", "", t, flags=re.I)
+    tail = t.split(",", 1)[1].strip() if "," in t else t
+    return f"in {tail}" if tail else f"as {t}"
 
 
 def generate_follow_up(row: dict) -> tuple[str, str]:

@@ -46,6 +46,11 @@ REJECTION_PHRASES = [
     "more closely align",
     "no longer being considered",
     "decided to go with",
+"not been selected",
+    "different direction",
+    "unable to move you forward",
+    "proceed with another candidate",
+    "we regret",
 ]
 
 # Gmail's search only tells us a phrase appears *somewhere*; confirmation
@@ -92,6 +97,15 @@ DECISIVE_PHRASES = [
     "we have decided to pursue",
     "not to proceed with your",
     "will not be extending",
+# Wording found by sampling rejections these rules were missing.
+    "not been selected for",
+    "not been selected to",
+    "unable to move you forward",
+    "different direction at this time",
+    "proceed with another candidate",
+    "regret to let you know",
+    "were not successful",
+    "was not successful",
 ]
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -110,6 +124,26 @@ _CONDITIONAL_LEAD_RE = re.compile(
 )
 
 
+_MODEL = None
+_MODEL_TRIED = False
+# CV F1 is ~0.77, so the model is a useful net but not trustworthy at the
+# margin. Only a very confident prediction is allowed to mark a row, since a
+# false positive silently closes a live application.
+MODEL_THRESHOLD = 0.90
+
+
+def _model():
+    global _MODEL, _MODEL_TRIED
+    if not _MODEL_TRIED:
+        _MODEL_TRIED = True
+        try:
+            import rejection_model
+            _MODEL = rejection_model.load()
+        except Exception:
+            _MODEL = None
+    return _MODEL
+
+
 def _is_real_rejection(msg: dict) -> str | None:
     """Returns the decisive phrase found in the body, or None."""
     text = _plain_text(msg.get("body", ""))
@@ -120,6 +154,15 @@ def _is_real_rejection(msg: dict) -> str | None:
             if not _CONDITIONAL_LEAD_RE.search(lead):
                 return phrase
             idx = text.find(phrase, idx + 1)
+
+    # Nothing in the phrase list matched. Ask the learned model, which
+    # generalizes to ATS wording nobody thought to enumerate.
+    m = _model()
+    if m is not None:
+        import rejection_model
+        p = rejection_model.predict_proba(m, msg.get("body", ""))
+        if p >= MODEL_THRESHOLD:
+            return f"model p={p:.2f}"
     return None
 
 

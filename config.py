@@ -27,6 +27,11 @@ HEADERS = [
     "Contact LinkedIn URL",
     "Outreach Email Status",      # not started / drafted / sent
     "Notes",
+    # Appended after the fact: ensure_headers() only ever adds missing columns
+    # at the end, so this list must mirror the sheet's real left-to-right
+    # order. Rows are read positionally — reordering here misaligns every
+    # column after the change.
+    "Job Description",           # short summary of what the role actually is
 ]
 
 # Convenience aliases so the rest of the code can use readable names

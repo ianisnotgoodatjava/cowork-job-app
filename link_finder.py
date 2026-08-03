@@ -46,19 +46,49 @@ def _title_tokens(text: str) -> set[str]:
 
 def _disambiguate(matches: list[dict], msg: dict) -> dict | None:
     """When multiple rows share a company, pick the one whose Position most
-    distinctly overlaps the email subject (e.g. 'RMBS' vs 'CMBS' vs
-    'Municipal Markets'). Returns None if no row is a clear unique best."""
-    subject_tokens = _title_tokens(msg["subject"])
+    distinctly overlaps the email (e.g. 'RMBS' vs 'CMBS' vs 'Municipal
+    Markets'). Returns None if no row is a clear unique best.
+
+    The company's own name is removed from both sides first: a row whose
+    Position happens to embed the company ("Funds Ratings ... at KBRA") would
+    otherwise beat its siblings on a generic subject like "Thank you for your
+    interest in KBRA!", which carries no role information at all.
+    """
+    company_tokens = _title_tokens(matches[0].get("Company", ""))
+    # The body usually names the exact role even when the subject does not.
+    haystack = msg["subject"] + " " + (msg.get("body") or "")[:4000]
+    if "<" in haystack:
+        haystack = html.unescape(re.sub(r"<[^>]+>", " ", haystack))
+    subject_tokens = _title_tokens(haystack) - company_tokens
     if not subject_tokens:
         return None
     scored = sorted(
-        ((len(_title_tokens(r["Position"]) & subject_tokens), r) for r in matches),
+        (((len((_title_tokens(r["Position"]) - company_tokens) & subject_tokens)), r) for r in matches),
         key=lambda pair: -pair[0],
     )
     best_score = scored[0][0]
     if best_score > 0 and (len(scored) == 1 or scored[1][0] < best_score):
         return scored[0][1]
     return None
+
+
+def _role_conflicts(row: dict, msg: dict) -> bool:
+    """True when the email clearly names a role other than this row's.
+
+    Used to reject a company-only match. Returns False when the email says
+    nothing role-specific, so generic emails still match a lone open row.
+    """
+    company_tokens = _title_tokens(row.get("Company", ""))
+    text = msg["subject"] + " " + (msg.get("body") or "")[:4000]
+    if "<" in text:
+        text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    email_tokens = _title_tokens(text) - company_tokens
+    role_tokens = _title_tokens(row.get("Position", "")) - company_tokens
+    if not role_tokens or not email_tokens:
+        return False
+    # Only conflict when the email is specific enough to be talking about a
+    # named role and none of this row's distinctive words appear in it.
+    return not (role_tokens & email_tokens)
 
 
 def _best_job_url(body: str) -> str | None:

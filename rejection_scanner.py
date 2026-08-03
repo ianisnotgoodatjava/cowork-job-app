@@ -13,7 +13,7 @@ import gmail_client
 import sheets
 from date_utils import parse_date
 from company_match import company_mentioned
-from link_finder import _disambiguate
+from link_finder import _disambiguate, _role_conflicts
 
 REJECTION_PHRASES = [
     "unfortunately",
@@ -128,6 +128,14 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
             resolved = _disambiguate(matches, msg)
             if resolved is not None:
                 matches = [resolved]
+
+        # A single remaining match is not proof: if the row this email is really
+        # about was already marked rejected, the only 'applied' row left at
+        # that company will match by company name alone. Require that the
+        # email does not name a clearly different role.
+        if len(matches) == 1 and _role_conflicts(matches[0], msg):
+            ambiguous.append((matches, msg))
+            continue
 
         if len(matches) == 1:
             row = matches[0]

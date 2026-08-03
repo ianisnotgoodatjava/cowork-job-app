@@ -17,9 +17,21 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
     """Returns [{id, subject, from, snippet, date, body?}] for messages matching a Gmail search query."""
     svc = _service()
     results = []
-    request = svc.users().messages().list(userId="me", q=query, maxResults=max_results)
-    response = request.execute()
-    for msg in response.get("messages", []):
+    # Gmail caps a single page at 500; page through so max_results above that
+    # is honoured instead of silently truncating.
+    collected = []
+    page = None
+    while len(collected) < max_results:
+        response = svc.users().messages().list(
+            userId="me", q=query, pageToken=page,
+            maxResults=min(500, max_results - len(collected)),
+        ).execute()
+        collected.extend(response.get("messages", []))
+        page = response.get("nextPageToken")
+        if not page:
+            break
+
+    for msg in collected:
         full = svc.users().messages().get(
             userId="me", id=msg["id"],
             format="full" if include_body else "metadata",

@@ -34,6 +34,18 @@ REJECTION_PHRASES = [
     "decided not to move forward",
     "filled this position",
     "position is closed",
+    "not to continue with your application",
+    "decided not to continue",
+    "another candidate",
+    "other applicants",
+    "will not be advancing",
+    "not be advancing",
+    "regret to inform",
+    "unable to offer you",
+    "not progressing",
+    "more closely align",
+    "no longer being considered",
+    "decided to go with",
 ]
 
 # Gmail's search only tells us a phrase appears *somewhere*; confirmation
@@ -58,6 +70,28 @@ DECISIVE_PHRASES = [
     "decided not to move forward",
     "not to move forward with your",
     "other candidates whose",
+    # Seen verbatim in real rejections here — Conning, MUFG, StoneX and
+    # others each word it differently, so coverage has to be broad.
+    "not to continue with your application",
+    "decided not to continue",
+    "another candidate that better",
+    "another candidate whose",
+    "other candidates at this time",
+    "other applicants whose",
+    "will not be advancing",
+    "not be advancing your",
+    "regret to inform",
+    "unable to offer you",
+    "not progressing with your",
+    "more closely align",
+    "no longer being considered",
+    "not be considered further",
+    "decided to go with another",
+    "chosen to move forward with another",
+    "selected another candidate",
+    "we have decided to pursue",
+    "not to proceed with your",
+    "will not be extending",
 ]
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -89,12 +123,17 @@ def _is_real_rejection(msg: dict) -> str | None:
     return None
 
 
-def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
+def scan(days_back: int = 180, dry_run: bool = False, since_date=None,
+         max_results: int = 10000) -> None:
     phrase_query = " OR ".join(f'"{p}"' for p in REJECTION_PHRASES)
-    query = f"in:inbox newer_than:{days_back}d ({phrase_query})"
+    # Not `in:inbox`: rejections get archived, auto-filtered into labels, or
+    # swept up by tabs, and those are still rejections.
+    query = f"newer_than:{days_back}d ({phrase_query})"
 
     print(f"Searching Gmail: {query}\n")
-    messages = gmail_client.search_messages(query, include_body=True)
+    # Explicit cap: the default (100) silently truncated a 200+ result set,
+    # so most rejections were never examined.
+    messages = gmail_client.search_messages(query, include_body=True, max_results=max_results)
     print(f"Found {len(messages)} candidate rejection emails.\n")
 
     applied_rows = [

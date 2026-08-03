@@ -11,6 +11,7 @@ import re
 
 import gmail_client
 import sheets
+import status as status_mod
 from googleapiclient.discovery import build
 from google_auth import get_credentials
 
@@ -51,7 +52,7 @@ def _draft_index(svc) -> dict[str, list[tuple[str, str]]]:
 def run(dry_run: bool = False) -> None:
     rejected = [
         r for r in sheets.list_rows()
-        if r.get("Status", "").strip().lower() == "rejected"
+        if status_mod.normalize(r.get("Status", "")) in (status_mod.REJECTED, status_mod.INTERVIEW_REJECTED)
         and r.get("Outreach Email Status", "").strip().lower() == "drafted"
     ]
     if not rejected:

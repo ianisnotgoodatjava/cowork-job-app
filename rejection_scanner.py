@@ -13,6 +13,7 @@ import gmail_client
 import sheets
 from date_utils import parse_date
 from company_match import company_mentioned
+import status as status_mod
 from link_finder import _disambiguate, _role_conflicts
 
 REJECTION_PHRASES = [
@@ -98,7 +99,7 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
 
     applied_rows = [
         r for r in sheets.list_rows()
-        if r.get("Status", "").strip().lower() == "applied"
+        if status_mod.is_open(r.get("Status", ""))
     ]
     if since_date:
         applied_rows = [

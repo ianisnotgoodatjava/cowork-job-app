@@ -19,6 +19,7 @@ import app_scanner
 import rejection_scanner
 import sheet_format
 import sheets
+import status as status_mod
 from company_match import normalize
 from date_utils import parse_date
 
@@ -28,7 +29,9 @@ def _ready_for_outreach(days_back: int) -> list[dict]:
     cutoff = datetime.date.today() - datetime.timedelta(days=days_back)
     out = []
     for r in sheets.list_rows():
-        if r.get("Status", "").strip().lower() != "applied":
+        # Rejected/interview-rejected rows are skipped: no point networking
+        # into a role that is already closed.
+        if not status_mod.is_open(r.get("Status", "")):
             continue
         if r.get("Contact Name", "").strip():
             continue

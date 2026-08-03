@@ -9,15 +9,21 @@ import os
 from googleapiclient.discovery import build
 from google_auth import get_credentials
 import sheets
+import status as status_mod
 
 RED = {"red": 0.96, "green": 0.80, "blue": 0.80}
 GREEN = {"red": 0.80, "green": 0.94, "blue": 0.80}
+BLUE = {"red": 0.80, "green": 0.88, "blue": 0.97}
+ORANGE = {"red": 0.99, "green": 0.90, "blue": 0.76}
 NONE = {"red": 1.0, "green": 1.0, "blue": 1.0}
 
+# Keyed by canonical status, so a hand-typed "reject" or "interviewed but
+# rejected" colors the same as a value written by the CLI.
 STATUS_COLORS = {
-    "rejected": RED,
-    "interview": GREEN,
-    "offer": GREEN,
+    status_mod.REJECTED: RED,
+    status_mod.INTERVIEW_REJECTED: ORANGE,
+    status_mod.INTERVIEWING: GREEN,
+    status_mod.OFFER: BLUE,
 }
 
 
@@ -39,14 +45,18 @@ def apply_status_colors(dry_run: bool = False) -> None:
     n_cols = len(sheets.HEADERS)
 
     requests = []
-    counts = {"rejected": 0, "interview/offer": 0, "cleared": 0}
+    counts = {"rejected": 0, "interview-rejected": 0, "interviewing": 0, "offer": 0, "cleared": 0}
     for r in rows:
-        status = r.get("Status", "").strip().lower()
+        status = status_mod.normalize(r.get("Status", ""))
         color = STATUS_COLORS.get(status, NONE)
         if color is RED:
             counts["rejected"] += 1
+        elif color is ORANGE:
+            counts["interview-rejected"] += 1
         elif color is GREEN:
-            counts["interview/offer"] += 1
+            counts["interviewing"] += 1
+        elif color is BLUE:
+            counts["offer"] += 1
         else:
             counts["cleared"] += 1
         requests.append({
@@ -63,8 +73,7 @@ def apply_status_colors(dry_run: bool = False) -> None:
             }
         })
 
-    print(f"rejected (red): {counts['rejected']} | interview/offer (green): "
-          f"{counts['interview/offer']} | no fill: {counts['cleared']}")
+    print(" | ".join(f"{k}: {v}" for k, v in counts.items()))
     if dry_run:
         print("(dry-run — no formatting written)")
         return

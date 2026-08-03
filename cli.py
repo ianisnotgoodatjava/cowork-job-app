@@ -230,7 +230,7 @@ def main():
 
     p = sub.add_parser("update-status", help="Update the Status column (applied/rejected/interview/offer)")
     p.add_argument("--row", type=int, required=True)
-    p.add_argument("--status", required=True, choices=["applied", "rejected", "interview", "interview-rejected", "offer"])
+    p.add_argument("--status", required=True, choices=["applied", "interviewing", "interview-rejected", "rejected", "offer"])
     p.set_defaults(func=cmd_update_status)
 
     p = sub.add_parser("scan-rejections", help="Scan Gmail for rejection emails and auto-update matching rows")

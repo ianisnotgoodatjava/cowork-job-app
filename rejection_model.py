@@ -15,7 +15,8 @@ import re
 import html
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.svm import LinearSVC
 from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import make_pipeline
 
@@ -72,7 +73,10 @@ def train(days_back: int = 500, out_path: str = MODEL_FILE):
     pipe = make_pipeline(
         TfidfVectorizer(stop_words="english", ngram_range=(1, 2),
                         sublinear_tf=True, min_df=2, max_features=20000),
-        LogisticRegression(max_iter=2000, class_weight="balanced"),
+        # LinearSVC beat logistic regression and Naive Bayes on this data
+        # (5-fold F1 0.83 vs 0.77 / 0.26); calibrated so the threshold in
+        # rejection_scanner still has a real probability to compare against.
+        CalibratedClassifierCV(LinearSVC(class_weight="balanced"), cv=5),
     )
     # Cross-validated, so the number reported is not the score on data the
     # model already saw.

@@ -6,10 +6,14 @@ exactly one still-'applied' row's company name appears in the email. If
 multiple rows share a company name, it's reported instead of guessed at.
 """
 
+import html
+import re
+
 import gmail_client
 import sheets
 from date_utils import parse_date
 from company_match import company_mentioned
+from link_finder import _disambiguate
 
 REJECTION_PHRASES = [
     "unfortunately",
@@ -22,7 +26,66 @@ REJECTION_PHRASES = [
     "position has been filled",
     "pursue other candidates",
     "will not be proceeding",
+    "is now closed",
+    "no longer under consideration",
+    "not be moving forward",
+    "moving forward with other",
+    "decided not to move forward",
+    "filled this position",
+    "position is closed",
 ]
+
+# Gmail's search only tells us a phrase appears *somewhere*; confirmation
+# emails routinely contain rejection-sounding boilerplate ("if you are not
+# selected..."). These are the phrases that only appear in a real rejection,
+# and one of them must be present in the body before a row is marked.
+DECISIVE_PHRASES = [
+    "not moving forward",
+    "will not be moving forward",
+    "not be moving forward",
+    "decided to move forward with other",
+    "moving forward with other",
+    "decided to proceed with other candidates",
+    "pursue other candidates",
+    "not selected",
+    "position has been filled",
+    "filled this position",
+    "position is closed",
+    "is now closed",
+    "no longer under consideration",
+    "will not be proceeding",
+    "decided not to move forward",
+    "not to move forward with your",
+    "other candidates whose",
+]
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _plain_text(body: str) -> str:
+    return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", body or ""))).lower()
+
+
+# Confirmation emails describe rejection hypothetically ("if you are not
+# selected at this stage, we will keep your application on file"). A decisive
+# phrase in that context is boilerplate, not a decision about this candidate.
+_CONDITIONAL_LEAD_RE = re.compile(
+    r"(if|should|unless|whether|in case|in the event)\b[^.]{0,60}$", re.I
+)
+
+
+def _is_real_rejection(msg: dict) -> str | None:
+    """Returns the decisive phrase found in the body, or None."""
+    text = _plain_text(msg.get("body", ""))
+    for phrase in DECISIVE_PHRASES:
+        idx = text.find(phrase)
+        while idx >= 0:
+            lead = text[max(0, idx - 60):idx]
+            if not _CONDITIONAL_LEAD_RE.search(lead):
+                return phrase
+            idx = text.find(phrase, idx + 1)
+    return None
 
 
 def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
@@ -30,7 +93,7 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
     query = f"in:inbox newer_than:{days_back}d ({phrase_query})"
 
     print(f"Searching Gmail: {query}\n")
-    messages = gmail_client.search_messages(query)
+    messages = gmail_client.search_messages(query, include_body=True)
     print(f"Found {len(messages)} candidate rejection emails.\n")
 
     applied_rows = [
@@ -47,10 +110,24 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
     updated = []
     ambiguous = []
     unmatched = []
+    not_rejections = []
 
     for msg in messages:
-        haystack = f"{msg['subject']} {msg['from']} {msg['snippet']}".lower()
+        # 'from' is deliberately excluded: ATS vendor domains (myworkday.com,
+        # oraclecloud.com, icims.com) made unrelated companies match.
+        phrase = _is_real_rejection(msg)
+        if not phrase:
+            not_rejections.append(msg)
+            continue
+        haystack = f"{msg['subject']} {msg['snippet']}".lower()
         matches = [r for r in applied_rows if company_mentioned(r["Company"], haystack)]
+        # Several rows at one company (e.g. two Salesforce applications) used
+        # to be skipped outright; the email's subject usually names which role
+        # it is about, so try that before giving up.
+        if len(matches) > 1:
+            resolved = _disambiguate(matches, msg)
+            if resolved is not None:
+                matches = [resolved]
 
         if len(matches) == 1:
             row = matches[0]
@@ -78,7 +155,11 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None) -> None:
             rows_desc = ", ".join(f"row {r['row_number']}" for r in matches)
             print(f"  \"{msg['subject']}\" matched {rows_desc}")
 
+    if not_rejections:
+        print(f"\n{len(not_rejections)} email(s) matched the search but had no decisive "
+              f"rejection wording in the body (ignored — most are confirmations).")
+
     if unmatched:
-        print(f"\n{len(unmatched)} rejection-looking email(s) didn't match any applied company (ignored):")
+        print(f"\n{len(unmatched)} rejection email(s) didn't match any applied company (ignored):")
         for msg in unmatched:
             print(f"  \"{msg['subject']}\" from {msg['from']}")

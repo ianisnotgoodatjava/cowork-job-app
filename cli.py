@@ -85,6 +85,11 @@ def cmd_auto(args):
     auto_pipeline.run(days_back=args.days, dry_run=args.dry_run)
 
 
+def cmd_train_rejection_model(args):
+    import rejection_model
+    rejection_model.train(days_back=args.days)
+
+
 def cmd_cleanup_drafts(args):
     draft_cleanup.run(dry_run=args.dry_run)
 
@@ -249,6 +254,10 @@ def main():
     p.add_argument("--days", type=int, default=30, help="Look back this many days (default 30)")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_auto)
+
+    p = sub.add_parser("train-rejection-model", help="Retrain the learned rejection classifier from your mail")
+    p.add_argument("--days", type=int, default=500)
+    p.set_defaults(func=cmd_train_rejection_model)
 
     p = sub.add_parser("cleanup-drafts", help="Delete outreach drafts for applications that were rejected")
     p.add_argument("--dry-run", action="store_true")

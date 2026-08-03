@@ -136,7 +136,11 @@ def generate_outreach(row: dict) -> tuple[str, str]:
 
 
 def _interest_para(area: str, position: str, company: str) -> str:
-    subject = area.lower() if area else (position.lower() if position else "")
+    # A bare "Analyst" is not a subject anyone can be interested in; fall
+    # through to the company phrasing rather than emit "interested in analyst".
+    generic = {"analyst", "associate", "intern", "analyst i", "senior analyst"}
+    pos = position.lower().strip()
+    subject = area.lower() if area else ("" if pos in generic else pos)
     if subject:
         opening = f"I've become increasingly interested in {subject} because of"
     else:

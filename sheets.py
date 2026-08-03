@@ -33,6 +33,8 @@ def ensure_headers():
         ).execute()
         return
 
+    # Only ever appends at the end, so config.HEADERS must already mirror the
+    # sheet's real left-to-right order — rows are read positionally.
     missing = [h for h in HEADERS if h not in existing]
     if missing:
         start_col_index = len(existing)

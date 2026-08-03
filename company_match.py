@@ -23,7 +23,10 @@ def normalize(name: str) -> str:
 
 def company_mentioned(company: str, haystack: str) -> bool:
     normalized = normalize(company)
-    if len(normalized) < 4:
+    # Word boundaries (below) already stop "ING" matching inside "applying",
+    # so a length floor is unnecessary and blocked real short names like CME,
+    # UBS, BNY and NRG from ever matching.
+    if len(normalized) < 2:
         return False
     pattern = r"\b" + re.escape(normalized).replace(r"\ ", r"\s+") + r"\b"
     return re.search(pattern, haystack) is not None

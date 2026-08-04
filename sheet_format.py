@@ -14,14 +14,14 @@ import status as status_mod
 RED = {"red": 0.96, "green": 0.80, "blue": 0.80}
 GREEN = {"red": 0.80, "green": 0.94, "blue": 0.80}
 BLUE = {"red": 0.80, "green": 0.88, "blue": 0.97}
-ORANGE = {"red": 0.99, "green": 0.90, "blue": 0.76}
+YELLOW = {"red": 1.0, "green": 0.95, "blue": 0.60}
 NONE = {"red": 1.0, "green": 1.0, "blue": 1.0}
 
 # Keyed by canonical status, so a hand-typed "reject" or "interviewed but
 # rejected" colors the same as a value written by the CLI.
 STATUS_COLORS = {
     status_mod.REJECTED: RED,
-    status_mod.INTERVIEW_REJECTED: ORANGE,
+    status_mod.INTERVIEW_REJECTED: YELLOW,
     status_mod.INTERVIEWING: GREEN,
     status_mod.OFFER: BLUE,
 }
@@ -51,7 +51,7 @@ def apply_status_colors(dry_run: bool = False) -> None:
         color = STATUS_COLORS.get(status, NONE)
         if color is RED:
             counts["rejected"] += 1
-        elif color is ORANGE:
+        elif color is YELLOW:
             counts["interview-rejected"] += 1
         elif color is GREEN:
             counts["interviewing"] += 1

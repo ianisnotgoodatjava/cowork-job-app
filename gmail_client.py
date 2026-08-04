@@ -40,6 +40,7 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
         headers = {h["name"]: h["value"] for h in full["payload"]["headers"]}
         entry = {
             "id": msg["id"],
+            "threadId": msg.get("threadId") or full.get("threadId", ""),
             "subject": headers.get("Subject", ""),
             "from": headers.get("From", ""),
             "to": headers.get("To", ""),

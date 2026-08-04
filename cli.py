@@ -21,6 +21,7 @@ import link_finder
 import app_scanner
 import auto_pipeline
 import draft_cleanup
+import follow_up
 import sheet_format
 from date_utils import parse_date
 import email_drafter
@@ -88,6 +89,10 @@ def cmd_auto(args):
 def cmd_train_rejection_model(args):
     import rejection_model
     rejection_model.train(days_back=args.days)
+
+
+def cmd_follow_ups(args):
+    follow_up.scan(days_back=args.days, min_age_days=args.min_age)
 
 
 def cmd_cleanup_drafts(args):
@@ -258,6 +263,11 @@ def main():
     p = sub.add_parser("train-rejection-model", help="Retrain the learned rejection classifier from your mail")
     p.add_argument("--days", type=int, default=500)
     p.set_defaults(func=cmd_train_rejection_model)
+
+    p = sub.add_parser("follow-ups", help="List outreach emails that never got a reply")
+    p.add_argument("--days", type=int, default=180)
+    p.add_argument("--min-age", type=int, default=7, help="Only flag sends older than this many days")
+    p.set_defaults(func=cmd_follow_ups)
 
     p = sub.add_parser("cleanup-drafts", help="Delete outreach drafts for applications that were rejected")
     p.add_argument("--dry-run", action="store_true")

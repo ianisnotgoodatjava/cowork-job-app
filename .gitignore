@@ -12,3 +12,10 @@ outreach_corpus.json
 _recipients_sample.json
 logs/
 rejection_model.pkl
+interview_model.pkl
+prep/
+resumes/
+
+# Sheet snapshots taken before destructive edits — data, not code, and they
+# carry the full application history including named contacts.
+sheet-backup-*.csv

@@ -16,8 +16,14 @@ INTERVIEWING = "interviewing"
 INTERVIEW_REJECTED = "interview-rejected"
 REJECTED = "rejected"
 OFFER = "offer"
+# Applied, never heard back, and old enough that it is not coming. Kept
+# separate from "rejected": nobody turned you down, so it says nothing about
+# how the application was received — only that the sheet should stop counting
+# it as live.
+NO_RESPONSE = "no response"
 
-CANONICAL = [APPLIED, INTERVIEWING, INTERVIEW_REJECTED, REJECTED, OFFER]
+CANONICAL = [APPLIED, INTERVIEWING, INTERVIEW_REJECTED, REJECTED, OFFER,
+             NO_RESPONSE]
 
 # Longest/most specific first — "interviewed but rejected" must not be read
 # as plain "rejected", and it contains both words.
@@ -28,6 +34,10 @@ _ALIASES: list[tuple[tuple[str, ...], str]] = [
     (("interviewing", "interview", "interviewed", "in interview",
       "interview stage", "phone screen", "onsite"), INTERVIEWING),
     (("offer", "offered", "accepted"), OFFER),
+    # Before "rejected", because "no response" contains neither word but
+    # "closed - no response" would otherwise fall through to the raw text.
+    (("no response", "no reply", "never heard back", "ghosted",
+      "no answer"), NO_RESPONSE),
     (("rejected", "reject", "rejection", "declined", "denied"), REJECTED),
     (("applied", "apply", "submitted", "in progress", "pending"), APPLIED),
 ]

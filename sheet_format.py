@@ -15,6 +15,9 @@ RED = {"red": 0.96, "green": 0.80, "blue": 0.80}
 GREEN = {"red": 0.80, "green": 0.94, "blue": 0.80}
 BLUE = {"red": 0.80, "green": 0.88, "blue": 0.97}
 YELLOW = {"red": 1.0, "green": 0.95, "blue": 0.60}
+# Aged out for silence, not turned down — greyed rather than red so a real
+# rejection still stands out against it.
+GREY = {"red": 0.91, "green": 0.91, "blue": 0.91}
 NONE = {"red": 1.0, "green": 1.0, "blue": 1.0}
 
 # Keyed by canonical status, so a hand-typed "reject" or "interviewed but
@@ -24,6 +27,7 @@ STATUS_COLORS = {
     status_mod.INTERVIEW_REJECTED: YELLOW,
     status_mod.INTERVIEWING: GREEN,
     status_mod.OFFER: BLUE,
+    status_mod.NO_RESPONSE: GREY,
 }
 
 
@@ -45,7 +49,8 @@ def apply_status_colors(dry_run: bool = False) -> None:
     n_cols = len(sheets.HEADERS)
 
     requests = []
-    counts = {"rejected": 0, "interview-rejected": 0, "interviewing": 0, "offer": 0, "cleared": 0}
+    counts = {"rejected": 0, "interview-rejected": 0, "interviewing": 0,
+              "offer": 0, "no response": 0, "cleared": 0}
     for r in rows:
         status = status_mod.normalize(r.get("Status", ""))
         color = STATUS_COLORS.get(status, NONE)
@@ -57,6 +62,8 @@ def apply_status_colors(dry_run: bool = False) -> None:
             counts["interviewing"] += 1
         elif color is BLUE:
             counts["offer"] += 1
+        elif color is GREY:
+            counts["no response"] += 1
         else:
             counts["cleared"] += 1
         requests.append({

@@ -14,7 +14,7 @@ import gmail_client
 from googleapiclient.discovery import build
 from google_auth import get_credentials
 
-_ME = re.compile(r"icl2016@nyu\.edu|ian\.?liu", re.I)
+from config import ME_RE as _ME
 
 
 def _svc():

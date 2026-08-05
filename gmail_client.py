@@ -4,6 +4,7 @@ Drafts are never auto-sent — you review and hit Send yourself in Gmail."""
 import base64
 import mimetypes
 import os
+import time
 from email.message import EmailMessage
 from googleapiclient.discovery import build
 from google_auth import get_credentials
@@ -11,6 +12,29 @@ from google_auth import get_credentials
 
 def _service():
     return build("gmail", "v1", credentials=get_credentials())
+
+
+def _retry(call, attempts: int = 3, base_delay: float = 2.0):
+    """Runs a Gmail call, retrying transient network failures.
+
+    These scans make thousands of sequential requests, so a single SSL read
+    timeout is close to certain over a long run — and without this it took the
+    whole scan down after minutes of work. Returns None once it gives up.
+    """
+    for attempt in range(attempts):
+        try:
+            return call()
+        except Exception as exc:
+            transient = isinstance(exc, (OSError, TimeoutError)) or any(
+                s in type(exc).__name__
+                for s in ("Timeout", "Connection", "Transport", "SSL", "Incomplete")
+            )
+            if not transient or attempt == attempts - 1:
+                if not transient:
+                    raise
+                return None
+            time.sleep(base_delay * (2 ** attempt))
+    return None
 
 
 def search_messages(query: str, max_results: int = 100, include_body: bool = False) -> list[dict]:
@@ -22,21 +46,33 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
     collected = []
     page = None
     while len(collected) < max_results:
-        response = svc.users().messages().list(
-            userId="me", q=query, pageToken=page,
-            maxResults=min(500, max_results - len(collected)),
-        ).execute()
+        response = _retry(
+            lambda: svc.users().messages().list(
+                userId="me", q=query, pageToken=page,
+                maxResults=min(500, max_results - len(collected)),
+            ).execute()
+        )
+        if response is None:
+            break
         collected.extend(response.get("messages", []))
         page = response.get("nextPageToken")
         if not page:
             break
 
+    skipped = 0
     for msg in collected:
-        full = svc.users().messages().get(
-            userId="me", id=msg["id"],
-            format="full" if include_body else "metadata",
-            metadataHeaders=["Subject", "From", "To", "Date"],
-        ).execute()
+        full = _retry(
+            lambda: svc.users().messages().get(
+                userId="me", id=msg["id"],
+                format="full" if include_body else "metadata",
+                metadataHeaders=["Subject", "From", "To", "Date"],
+            ).execute()
+        )
+        # One flaky read used to abort a whole scan after several minutes of
+        # work. Losing a single message is a far better outcome.
+        if full is None:
+            skipped += 1
+            continue
         headers = {h["name"]: h["value"] for h in full["payload"]["headers"]}
         entry = {
             "id": msg["id"],
@@ -50,7 +86,46 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
         if include_body:
             entry["body"] = _extract_body(full["payload"])
         results.append(entry)
+
+    if skipped:
+        print(f"  ({skipped} message(s) skipped after repeated read errors)")
     return results
+
+
+def get_thread(thread_id: str, include_body: bool = True) -> list[dict]:
+    """Returns a thread's messages, oldest first, shaped like search_messages().
+
+    Thread history is what distinguishes a post-interview rejection from a
+    plain one: the rejection itself may say nothing, while the invite that
+    scheduled the call sits three messages above it.
+    """
+    svc = _service()
+    thread = _retry(
+        lambda: svc.users().threads().get(
+            userId="me", id=thread_id,
+            format="full" if include_body else "metadata",
+            metadataHeaders=["Subject", "From", "To", "Date"],
+        ).execute()
+    )
+    if thread is None:
+        return []
+
+    messages = []
+    for full in thread.get("messages", []):
+        headers = {h["name"]: h["value"] for h in full["payload"].get("headers", [])}
+        entry = {
+            "id": full["id"],
+            "threadId": thread_id,
+            "subject": headers.get("Subject", ""),
+            "from": headers.get("From", ""),
+            "to": headers.get("To", ""),
+            "date": headers.get("Date", ""),
+            "snippet": full.get("snippet", ""),
+        }
+        if include_body:
+            entry["body"] = _extract_body(full["payload"])
+        messages.append(entry)
+    return messages
 
 
 def _extract_body(payload: dict) -> str:

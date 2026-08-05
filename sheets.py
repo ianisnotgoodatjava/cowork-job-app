@@ -65,11 +65,16 @@ def append_job_row(job: dict) -> int:
 
 
 def update_row(row_number: int, updates: dict):
-    """Updates specific columns (by header name) on an existing row."""
+    """Updates specific columns (by header name) on an existing row.
+
+    Columns the sheet no longer has are dropped rather than raised on: the
+    tracker was trimmed to A-J, and a scanner that still passes "Notes" should
+    record the status it came for instead of failing the whole write.
+    """
     svc = _service()
     for header, value in updates.items():
         if header not in HEADERS:
-            raise ValueError(f"Unknown column: {header}")
+            continue
         col_index = HEADERS.index(header)
         col_letter = chr(ord("A") + col_index)
         svc.spreadsheets().values().update(
@@ -99,6 +104,40 @@ def get_row(row_number: int) -> dict:
         if row["row_number"] == row_number:
             return row
     raise ValueError(f"No application on row {row_number}")
+
+
+def _tab_id(svc) -> int:
+    meta = svc.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+    for s in meta["sheets"]:
+        if s["properties"]["title"] == SHEET_TAB:
+            return s["properties"]["sheetId"]
+    raise ValueError(f"Tab not found: {SHEET_TAB}")
+
+
+def delete_rows(row_numbers: list[int]) -> int:
+    """Deletes the given 1-indexed sheet rows. Returns how many were removed.
+
+    Deletes highest-numbered first, so each deletion cannot shift the rows
+    still queued behind it — the row numbers passed in all refer to the same
+    snapshot, and renumbering mid-loop would silently delete the wrong rows.
+    """
+    targets = sorted({n for n in row_numbers if n and n > 1}, reverse=True)
+    if not targets:
+        return 0
+
+    svc = _service()
+    tab_id = _tab_id(svc)
+    requests = [
+        {"deleteDimension": {"range": {
+            "sheetId": tab_id, "dimension": "ROWS",
+            "startIndex": n - 1, "endIndex": n,
+        }}}
+        for n in targets
+    ]
+    svc.spreadsheets().batchUpdate(
+        spreadsheetId=SHEET_ID, body={"requests": requests}
+    ).execute()
+    return len(targets)
 
 
 def sort_by_applied_date() -> None:

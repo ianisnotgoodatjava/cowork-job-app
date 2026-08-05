@@ -7,12 +7,17 @@ multiple rows share a company name, it's reported instead of guessed at.
 """
 
 import html
+import json
+import os
 import re
 
+import corrections
 import gmail_client
+import interview_signals
 import sheets
+from config import ME_RE
 from date_utils import parse_date
-from company_match import company_mentioned
+from company_match import company_mentioned, company_in_sender
 import status as status_mod
 from link_finder import _disambiguate, _role_conflicts
 
@@ -106,6 +111,33 @@ DECISIVE_PHRASES = [
     "regret to let you know",
     "were not successful",
     "was not successful",
+    # Flagstar's MD wrote this by hand and nothing above matched it — the list
+    # only had "...with other candidates", never the singular "another".
+    "move forward with another candidate",
+    "moving forward with another candidate",
+    "move forward with a different candidate",
+    "went with another candidate",
+    "offer to another candidate",
+    "filled the position with another",
+]
+
+# Subject shapes that mean "we are writing about your application", without
+# any decisive phrase appearing in the subject itself. The phrase search below
+# only retrieves mail whose *body text* Gmail indexed against one of
+# REJECTION_PHRASES; plenty of ATS rejections word the body differently and
+# were never downloaded, so the rules never got to judge them. These widen
+# what gets fetched — `_is_real_rejection` still decides.
+SUBJECT_QUERIES = [
+    'subject:"application status"',
+    'subject:"update on your application"',
+    'subject:"your application"',
+    'subject:"application update"',
+    'subject:"regarding your application"',
+    'subject:"status of your application"',
+    'subject:"candidate update"',
+    'subject:"position filled"',
+    'subject:"thank you for your interest"',
+    'subject:"following up on your application"',
 ]
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -166,9 +198,63 @@ def _is_real_rejection(msg: dict) -> str | None:
     return None
 
 
+# Which row each rejection email has already closed.
+#
+# One email can only ever be about one application, but Wolfe's rejection is
+# titled "Equity Sales Assistant, Quantitative Sales" — it names two roles, so
+# once the row it really belonged to was closed, the next run matched the only
+# remaining open Wolfe row and closed that too, then the next one after that.
+# Three separate rows were wrongly marked interview-rejected this way. Claims
+# are remembered so a message can never close a second row.
+CLAIMS_FILE = os.path.join("logs", "rejection_claims.json")
+
+
+def _load_claims() -> dict:
+    try:
+        with open(CLAIMS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_claims(claims: dict) -> None:
+    os.makedirs(os.path.dirname(CLAIMS_FILE), exist_ok=True)
+    with open(CLAIMS_FILE, "w") as f:
+        json.dump(claims, f, indent=1, sort_keys=True)
+
+
+def rejection_status(msg: dict) -> tuple[str, str]:
+    """Classifies a confirmed rejection as plain or post-interview.
+
+    Returns (canonical status, evidence). Losing after a conversation is a
+    different outcome from being screened out, and the sheet colors them
+    differently (yellow vs red), so it is worth the extra thread fetch.
+    """
+    ev = interview_signals.post_interview_evidence(msg)
+    if ev:
+        return status_mod.INTERVIEW_REJECTED, f"wording \"{ev}\""
+
+    # The rejection itself may be terse ("we went another direction") while the
+    # invite that scheduled the call sits earlier in the same thread.
+    thread_id = msg.get("threadId")
+    if thread_id:
+        try:
+            thread = gmail_client.get_thread(thread_id)
+        except Exception:
+            thread = []
+        ev = interview_signals.thread_interview_evidence(
+            thread, ME_RE, before_id=msg.get("id")
+        )
+        if ev:
+            return status_mod.INTERVIEW_REJECTED, f"thread {ev}"
+
+    return status_mod.REJECTED, ""
+
+
 def scan(days_back: int = 180, dry_run: bool = False, since_date=None,
          max_results: int = 10000) -> None:
-    phrase_query = " OR ".join(f'"{p}"' for p in REJECTION_PHRASES)
+    phrase_query = " OR ".join(
+        [f'"{p}"' for p in REJECTION_PHRASES] + SUBJECT_QUERIES)
     # Not `in:inbox`: rejections get archived, auto-filtered into labels, or
     # swept up by tabs, and those are still rejections.
     query = f"newer_than:{days_back}d ({phrase_query})"
@@ -190,6 +276,9 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None,
         ]
         print(f"Restricting to {len(applied_rows)} applied row(s) on/after {since_date}.\n")
 
+    claims = _load_claims()
+    already_claimed = []
+    overruled = []
     updated = []
     ambiguous = []
     unmatched = []
@@ -203,7 +292,14 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None,
             not_rejections.append(msg)
             continue
         haystack = f"{msg['subject']} {msg['snippet']}".lower()
-        matches = [r for r in applied_rows if company_mentioned(r["Company"], haystack)]
+        # Sender domain is checked too: a hiring manager writing from their own
+        # address ("Flagstar Analyst Position" from @flagstar.com) never spells
+        # the company the way the sheet does.
+        matches = [
+            r for r in applied_rows
+            if company_mentioned(r["Company"], haystack)
+            or company_in_sender(r["Company"], msg.get("from", ""))
+        ]
         # Several rows at one company (e.g. two Salesforce applications) used
         # to be skipped outright; the email's subject usually names which role
         # it is about, so try that before giving up.
@@ -222,23 +318,66 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None,
 
         if len(matches) == 1:
             row = matches[0]
-            if dry_run:
-                updated.append((row, msg))
+            # This email already closed a different row on an earlier run, so
+            # it cannot be about this one too.
+            claimed = claims.get(msg["id"])
+            if claimed is not None and claimed != row["row_number"]:
+                already_claimed.append((row, msg, claimed))
                 continue
-            note = f"Auto-detected rejection email ({msg['date']}): \"{msg['subject']}\""
+            # You have already ruled on this row. Wording that once fooled the
+            # scanner will fool it identically on every future run, so the
+            # only thing that stops the correction being undone is refusing
+            # to look.
+            if corrections.is_locked(row, "Status"):
+                overruled.append((row, corrections.locked(row, "Status")))
+                continue
+            new_status, evidence = rejection_status(msg)
+            if dry_run:
+                updated.append((row, msg, new_status, evidence))
+                continue
+            label = ("post-interview rejection"
+                     if new_status == status_mod.INTERVIEW_REJECTED else "rejection")
+            note = f"Auto-detected {label} email ({msg['date']}): \"{msg['subject']}\""
+            if evidence:
+                note += f" [{evidence}]"
             existing_notes = row.get("Notes", "")
             new_notes = f"{existing_notes}\n{note}".strip()
-            sheets.update_row(row["row_number"], {"Status": "rejected", "Notes": new_notes})
+            sheets.update_row(row["row_number"], {"Status": new_status, "Notes": new_notes})
+            claims[msg["id"]] = row["row_number"]
             applied_rows.remove(row)  # don't match this row again this run
-            updated.append((row, msg))
+            updated.append((row, msg, new_status, evidence))
         elif len(matches) > 1:
             ambiguous.append((matches, msg))
         else:
             unmatched.append(msg)
 
-    print(f"{'Would update' if dry_run else 'Updated'} {len(updated)} row(s):")
-    for row, msg in updated:
-        print(f"  row {row['row_number']}: {row['Position']} @ {row['Company']} <- \"{msg['subject']}\"")
+    if not dry_run:
+        _save_claims(claims)
+
+    if overruled:
+        print(f"{len(overruled)} row(s) left alone — you already corrected them:")
+        for row, value in overruled:
+            print(f"  row {row['row_number']:3d} {row['Company'][:24]:24s} "
+                  f"locked at {value!r}")
+        print()
+
+    if already_claimed:
+        print(f"{len(already_claimed)} email(s) skipped — already closed another "
+              f"row on an earlier run:")
+        for row, msg, claimed in already_claimed:
+            print(f"  row {row['row_number']} ({row['Company'][:22]}) <- "
+                  f"\"{msg['subject'][:52]}\" already used for row {claimed}")
+        print()
+
+    n_interview = sum(1 for u in updated if u[2] == status_mod.INTERVIEW_REJECTED)
+    print(f"{'Would update' if dry_run else 'Updated'} {len(updated)} row(s) "
+          f"({n_interview} after an interview):")
+    for row, msg, new_status, evidence in updated:
+        tag = " [INTERVIEW]" if new_status == status_mod.INTERVIEW_REJECTED else ""
+        print(f"  row {row['row_number']}: {row['Position']} @ {row['Company']}"
+              f" -> {new_status}{tag} <- \"{msg['subject'][:60]}\"")
+        if evidence:
+            print(f"        evidence: {evidence}")
 
     if ambiguous:
         print(f"\n{len(ambiguous)} email(s) matched multiple applied rows (skipped, review manually):")

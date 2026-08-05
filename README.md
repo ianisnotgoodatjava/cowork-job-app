@@ -84,6 +84,128 @@ python cli.py draft-application-email --row 2 --to jobs@acme.com \
 Both draft commands only create a **Gmail draft** — open Gmail, review, and
 send it yourself.
 
+## Status detection
+
+The scanners read Gmail (and, if enabled, Calendar) and keep the Status,
+Network, Requirements and Job Description columns current.
+
+```bash
+# Rejections -> Status=rejected, or interview-rejected (yellow) when the
+# email or its thread shows you had already interviewed.
+python cli.py scan-rejections --days 460 --dry-run
+
+# Interview invites and real human replies -> Status=interviewing,
+# Network=TRUE. Also upgrades an already-rejected row to interview-rejected
+# when the thread proves you got to a conversation.
+python cli.py scan-replies --days 460 --dry-run
+
+# Email yourself a reminder about anything new that is waiting on a reply.
+# Sends only to your own address, resolved from the authenticated account.
+python cli.py scan-replies --notify
+```
+
+### Warm leads that went cold
+
+The opposite of `follow-ups`. That finds outreach nobody answered; this finds
+threads where someone at the company *did* answer and then it went quiet with
+no rejection — the leads easiest to lose. Mirae Asset replied twice in June,
+went silent, and had never made it onto the sheet at all.
+
+```bash
+python cli.py reach-out-again --min-silent 21
+```
+
+`WARM` means someone offered a call in that thread. The nightly run emails you
+the warm ones.
+
+### Google Calendar (optional, strongest evidence)
+
+Email wording is inference; a calendar event is a record. Grant read-only
+access once — it is kept out of the default scopes so the nightly run never
+stops on a browser consent:
+
+```bash
+python cli.py enable-calendar
+```
+
+### The learned models
+
+`scan-rejections` falls back to a classifier when no phrase matches, and a
+second model judges whether a rejection followed an interview. The second one
+is trained on labels taken from your **calendar**, not from the phrase rules,
+so it can learn wording the rules never had:
+
+```bash
+python cli.py train-rejection-model
+python cli.py train-interview-model     # needs enable-calendar first
+```
+
+## Application prep package
+
+Everything up to the submit button. It never logs into an ATS or clicks
+anything — you paste, upload and decide.
+
+```bash
+# From a URL (works on simple career pages)
+python cli.py prep --url "https://..." --row 242
+
+# Workday / LinkedIn / Salesforce block scripted requests or render in
+# JavaScript. Open the posting, select all, paste into a .txt, then:
+python cli.py prep --text-file posting.txt --row 242
+
+# Cover letters are opt-in
+python cli.py prep --text-file posting.txt --row 242 --cover-letter
+```
+
+Writes `prep/<row>_<company>_<role>/` containing `job.md` (parsed
+requirements), `resume_bullets.md` (which of your real bullets to lead with,
+ranked for this posting), `ats_answers.md` (work authorization, why this
+company, salary, relevant project) and optionally `cover_letter.md`. It also
+fills the row's Job Description, Requirements and Job Link.
+
+It also drops a **tailored one-page PDF resume** in the same folder, built
+from `resume_bank.json`. Every line is your own text, copied verbatim —
+tailoring is *selection and ordering* (which bullets lead, which get cut to
+hold one page), never rewriting. A generator that reworded your experience per
+posting would invent a record you cannot defend in the interview. Every role
+stays on the page; only bullets are cut, and never a role's last one.
+
+Tailoring is per **category** (equity research, sales & trading, investment
+banking, quant/data, risk/credit), not per posting — the same handful of
+bullets serves every role in a category. Edit `resume_bank.json` to change the
+bullets or their matching tags.
+
+```bash
+# Just the resumes, one per category, without a posting
+python -c "import resume_pdf; [resume_pdf.build(c) for c in ('equity_research','sales_trading','investment_banking','quant_data','risk_credit')]"
+```
+
+```bash
+# Fill the Job Description column across the whole sheet
+python cli.py backfill-job-descriptions --dry-run
+```
+
+## The nightly run
+
+`com.example.jobtracker` (a launchd agent) runs `run_auto.sh` at **03:15**,
+which runs the full pipeline: new applications, rejections, replies and
+networking, Job Description backfill, sort, colour, and the reach-out
+reminder email.
+
+**launchd cannot wake a sleeping Mac.** If the machine is asleep at 03:15 the
+run is deferred until it next wakes — which is how the 2026-08-03 run died,
+firing on wake before the network was up. Each step now retries once and then
+skips rather than taking the whole pipeline down, but for it to genuinely run
+overnight you need a wake schedule (this needs your password, so run it
+yourself):
+
+```bash
+sudo pmset repeat wakeorpower MTWRFSU 03:10:00
+```
+
+Check it took with `pmset -g sched`. Without that, keep the lid open or leave
+the Mac plugged in and awake.
+
 ## Running this in Cursor
 
 This is a plain Python project — no MCP server or special Cursor config

@@ -69,7 +69,33 @@ def _disambiguate(matches: list[dict], msg: dict) -> dict | None:
     best_score = scored[0][0]
     if best_score > 0 and (len(scored) == 1 or scored[1][0] < best_score):
         return scored[0][1]
+
+    # Exact tokens tied. Recruiters abbreviate ("quant sales assistant" for the
+    # Quantitative Sales Assistant row), so break the tie on tokens the email
+    # abbreviates — this is what separated Wolfe's near-identical
+    # "Equity Sales Assistant" and "Quantitative Sales Assistant" rows.
+    if best_score > 0:
+        tied = [r for score, r in scored if score == best_score]
+        reranked = sorted(
+            ((_prefix_overlap(_title_tokens(r["Position"]) - company_tokens,
+                              subject_tokens), r) for r in tied),
+            key=lambda pair: -pair[0],
+        )
+        if reranked[0][0] > 0 and (len(reranked) == 1 or reranked[1][0] < reranked[0][0]):
+            return reranked[0][1]
     return None
+
+
+def _prefix_overlap(row_tokens: set[str], email_tokens: set[str]) -> int:
+    """Row tokens the email refers to by a shortened form ('quant' -> 'quantitative')."""
+    count = 0
+    for row_token in row_tokens:
+        for email_token in email_tokens:
+            if email_token != row_token and len(email_token) >= 4 \
+                    and row_token.startswith(email_token):
+                count += 1
+                break
+    return count
 
 
 def _role_conflicts(row: dict, msg: dict) -> bool:

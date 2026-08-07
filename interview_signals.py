@@ -249,6 +249,29 @@ def is_networking_thread(msg: dict) -> bool:
     return bool(_NETWORKING_SUBJECT_RE.search(msg.get("subject") or ""))
 
 
+def _is_from_me(msg: dict) -> bool:
+    from config import ME_RE
+    return bool(ME_RE.search(msg.get("from", "")))
+
+
+def _self_note_evidence(msg: dict) -> str | None:
+    """A thank-you-style note with real content, once the caller has already
+    decided the sender/thread checks out. Shared by self_interview_evidence
+    and self_networking_evidence, which differ only in which senders/threads
+    they let through to this point.
+
+    The subject test keys on "Thank you...", which is also how every ATS
+    opens its confirmation ("Thank you for applying to SMBC") — callers must
+    have already excluded inbound mail before reaching here, or an
+    application receipt reads as proof you had interviewed.
+    """
+    subject = (msg.get("subject") or "").lower()
+    if subject.startswith("thank you") or "thank you -" in subject:
+        return f"your note \"{msg['subject'][:45]}\""
+    ev = _find_phrase(plain_text(msg.get("body", "")), SELF_INTERVIEW_PHRASES)
+    return f"your note \"{ev}\"" if ev else None
+
+
 def self_interview_evidence(msg: dict) -> str | None:
     """A thank-you note you sent after interviewing for a role.
 
@@ -259,24 +282,9 @@ def self_interview_evidence(msg: dict) -> str | None:
     interviews that never happened. Networking notes still set Network=TRUE
     via self_networking_evidence(); they just never move Status.
     """
-    # The subject test below keys on "Thank you...", which is also how every
-    # ATS opens its confirmation ("Thank you for applying to SMBC"). Those are
-    # inbound, so without this guard an application receipt read as proof you
-    # had interviewed.
     if not _is_from_me(msg) or is_networking_thread(msg):
         return None
-
-    body = plain_text(msg.get("body", ""))
-    subject = (msg.get("subject") or "").lower()
-    if subject.startswith("thank you") or "thank you -" in subject:
-        return f"your note \"{msg['subject'][:45]}\""
-    ev = _find_phrase(body, SELF_INTERVIEW_PHRASES)
-    return f"your note \"{ev}\"" if ev else None
-
-
-def _is_from_me(msg: dict) -> bool:
-    from config import ME_RE
-    return bool(ME_RE.search(msg.get("from", "")))
+    return _self_note_evidence(msg)
 
 
 def self_networking_evidence(msg: dict) -> str | None:
@@ -285,15 +293,9 @@ def self_networking_evidence(msg: dict) -> str | None:
     Used for the Network column, which asks only whether the outreach
     connected — it stays true for a coffee chat that led nowhere.
     """
-    # Same trap as above: "Thank you for applying to X" is the ATS writing to
-    # you, not you writing to a person.
     if not _is_from_me(msg):
         return None
-    subject = (msg.get("subject") or "").lower()
-    if subject.startswith("thank you") or "thank you -" in subject:
-        return f"your note \"{msg['subject'][:45]}\""
-    ev = _find_phrase(plain_text(msg.get("body", "")), SELF_INTERVIEW_PHRASES)
-    return f"your note \"{ev}\"" if ev else None
+    return _self_note_evidence(msg)
 
 
 def thread_interview_evidence(messages: list[dict], me_re: re.Pattern,

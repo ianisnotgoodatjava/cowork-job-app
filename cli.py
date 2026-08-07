@@ -25,6 +25,7 @@ import follow_up
 import sheet_format
 import stale
 from date_utils import parse_date
+from config import NETWORKING_KEYWORDS
 import email_drafter
 
 
@@ -103,8 +104,7 @@ def cmd_list(args):
             if not applied or applied < since:
                 continue
         print(f"[row {r['row_number']}] {r['Position']} @ {r['Company']} "
-              f"| applied: {r.get('Applied Draes', '')} | status: {r['Status']} "
-              f"| outreach: {r['Outreach Email Status']} | application email: {r['Application Email Status']}")
+              f"| applied: {r.get('Applied Draes', '')} | status: {r['Status']}")
 
 
 def cmd_update_status(args):
@@ -240,13 +240,6 @@ def cmd_sync(args):
         print("Sorted oldest-first.")
     print("\n=== 4/4: color-coding by status ===")
     sheet_format.apply_status_colors(dry_run=args.dry_run)
-
-
-NETWORKING_KEYWORDS = (
-    '("reaching out" OR "quick question" OR "informational" OR "coffee chat" '
-    'OR "would love to learn" OR "connect" OR "your experience" OR "quick call" '
-    'OR "picking your brain" OR referral)'
-)
 
 
 def cmd_export_past_outreach(args):

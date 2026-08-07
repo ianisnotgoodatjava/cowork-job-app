@@ -8,6 +8,7 @@ against that.
 """
 
 import re
+from functools import lru_cache
 
 _SUFFIX_RE = re.compile(
     r"\b(inc|llc|ltd|corp|corporation|co|company|group|holdings|partners|lp|llp)\.?\b",
@@ -15,6 +16,7 @@ _SUFFIX_RE = re.compile(
 )
 
 
+@lru_cache(maxsize=None)
 def normalize(name: str) -> str:
     name = _SUFFIX_RE.sub("", name)
     name = re.sub(r"[^a-z0-9 ]", "", name.lower())
@@ -33,6 +35,7 @@ _DESCRIPTOR_RE = re.compile(
 )
 
 
+@lru_cache(maxsize=None)
 def _core(company: str) -> str:
     """The distinctive part of a name: 'Flagstar Bank' -> 'flagstar'."""
     name = normalize(company)

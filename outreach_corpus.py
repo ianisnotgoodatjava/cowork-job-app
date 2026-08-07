@@ -11,14 +11,11 @@ import re
 from email.utils import parsedate_to_datetime
 
 import gmail_client
+from config import NETWORKING_KEYWORDS
 
 CORPUS_FILE = "outreach_corpus.json"
 
-NETWORKING_QUERY = (
-    'in:sent ("reaching out" OR "quick question" OR "informational" OR '
-    '"coffee chat" OR "would love to learn" OR "inquiring about" OR '
-    '"your experience" OR "quick call" OR "picking your brain" OR referral)'
-)
+NETWORKING_QUERY = f"in:sent {NETWORKING_KEYWORDS}"
 
 # "Recent NYU Graduate Inquiring about {AREA} at {COMPANY}"
 _SUBJECT_RE = re.compile(

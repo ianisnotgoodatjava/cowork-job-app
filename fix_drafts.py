@@ -8,6 +8,7 @@ single lines instead, letting the client wrap them.
 import base64, re
 from email.message import EmailMessage
 from draft_cleanup import _svc
+from gmail_client import _extract_mimetype
 
 _APPLIED = re.compile(
     r"I recently applied to (?:the|an|a)\s+.{0,140}?,\s*and\s+(I['’a-z ]*)",
@@ -30,15 +31,6 @@ def strip_applied(text: str) -> str:
     return _APPLIED.sub(repl, text)
 
 
-def body_of(payload):
-    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
-        return payload["body"]["data"]
-    for c in payload.get("parts", []) or []:
-        r = body_of(c)
-        if r:
-            return r
-
-
 def run(dry_run=True, limit=20):
     svc = _svc()
     drafts = svc.users().drafts().list(userId="me", maxResults=100).execute().get("drafts", [])
@@ -50,10 +42,9 @@ def run(dry_run=True, limit=20):
         subj = hdr.get("Subject", "")
         if "Inquiring about" not in subj or not hdr.get("To"):
             continue
-        data = body_of(msg["payload"])
-        if not data:
+        old = _extract_mimetype(msg["payload"], "text/plain")
+        if not old:
             continue
-        old = base64.urlsafe_b64decode(data).decode("utf-8", "replace")
         new = strip_applied(unwrap(old))
         if new == old:
             continue

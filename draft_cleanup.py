@@ -9,7 +9,6 @@ Drafts, so it is out of reach here by construction.
 
 import re
 
-import gmail_client
 import sheets
 import status as status_mod
 from googleapiclient.discovery import build

@@ -105,8 +105,8 @@ def scan(days_back: int = 460, dry_run: bool = False,
 
         # A person writing from the company's own domain is a real connection,
         # whatever the message says.
-        if not interview_signals.is_automated(msg.get("from", ""), msg.get("subject", "")) \
-                and company_in_sender(row["Company"], msg.get("from", "")):
+        if (not interview_signals.is_automated(msg.get("from", ""), msg.get("subject", ""))
+                and company_in_sender(row["Company"], msg.get("from", ""))):
             network_ev.setdefault(rn, f"reply from {msg['from'][:45]}")
 
         ev = interview_signals.invite_evidence(msg)

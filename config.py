@@ -26,10 +26,12 @@ HEADERS = [
     "Required Skills & Experience",
 ]
 
-# Convenience aliases so the rest of the code can use readable names
-# without caring about the real (sometimes typo'd) header text.
-COMPANY = "Company"
-JOB_TITLE = "Position"
-LOCATION = "location"
-APPLIED_DATE = "Applied Draes"
-STATUS = "Status"
+# Prefilter for "does this sent email look like cold networking outreach" —
+# shared by the outreach corpus builder and the scanners that find warm leads
+# (reoutreach.py) and never-answered outreach (follow_up.py). OR-only, so one
+# combined list only ever widens the match for every caller, never narrows it.
+NETWORKING_KEYWORDS = (
+    '("reaching out" OR "quick question" OR "informational" OR "coffee chat" '
+    'OR "would love to learn" OR "connect" OR "your experience" OR "quick call" '
+    'OR "picking your brain" OR "inquiring about" OR referral)'
+)

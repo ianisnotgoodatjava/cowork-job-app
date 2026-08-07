@@ -6,7 +6,6 @@ exactly one still-'applied' row's company name appears in the email. If
 multiple rows share a company name, it's reported instead of guessed at.
 """
 
-import html
 import json
 import os
 import re
@@ -140,14 +139,6 @@ SUBJECT_QUERIES = [
     'subject:"following up on your application"',
 ]
 
-_TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"\s+")
-
-
-def _plain_text(body: str) -> str:
-    return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", body or ""))).lower()
-
-
 # Confirmation emails describe rejection hypothetically ("if you are not
 # selected at this stage, we will keep your application on file"). A decisive
 # phrase in that context is boilerplate, not a decision about this candidate.
@@ -178,7 +169,7 @@ def _model():
 
 def _is_real_rejection(msg: dict) -> str | None:
     """Returns the decisive phrase found in the body, or None."""
-    text = _plain_text(msg.get("body", ""))
+    text = interview_signals.plain_text(msg.get("body", ""))
     for phrase in DECISIVE_PHRASES:
         idx = text.find(phrase)
         while idx >= 0:

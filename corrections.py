@@ -26,6 +26,8 @@ from company_match import _core, normalize
 
 STORE = os.path.join("logs", "corrections.json")
 
+_cache: dict | None = None
+
 
 def row_key(company: str, position: str) -> str:
     """Stable identity for an application, independent of its row number."""
@@ -35,17 +37,25 @@ def row_key(company: str, position: str) -> str:
 
 
 def _load() -> dict:
-    try:
-        with open(STORE) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    # Scan loops call locked()/is_locked() once per row, which otherwise
+    # re-reads and re-parses this file from disk every time. Cached for the
+    # life of the process; _save() keeps it in sync with what's written.
+    global _cache
+    if _cache is None:
+        try:
+            with open(STORE) as f:
+                _cache = json.load(f)
+        except (OSError, ValueError):
+            _cache = {}
+    return _cache
 
 
 def _save(data: dict) -> None:
+    global _cache
     os.makedirs(os.path.dirname(STORE), exist_ok=True)
     with open(STORE, "w") as f:
         json.dump(data, f, indent=1, sort_keys=True)
+    _cache = data
 
 
 def record(company: str, position: str, column: str, value: str,

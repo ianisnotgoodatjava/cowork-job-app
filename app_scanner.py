@@ -5,17 +5,13 @@ Rows that can't be parsed confidently are reported rather than guessed at —
 a wrong row is worse than a missing one, since you'd have to find and fix it.
 """
 
-import os
 import re
 from email.utils import parsedate_to_datetime
-
-from googleapiclient.discovery import build
 
 import gmail_client
 import sheets
 from config import HEADERS
 from company_match import normalize
-from google_auth import get_credentials
 from link_finder import CONFIRMATION_PHRASES
 
 # Only patterns where the captured group is unambiguously a COMPANY.
@@ -386,7 +382,7 @@ def scan(days_back: int = 730, dry_run: bool = False,
     if not new_rows:
         return
 
-    svc = build("sheets", "v4", credentials=get_credentials())
+    sheets.ensure_headers()
     values = []
     for v in new_rows.values():
         row = {
@@ -398,9 +394,12 @@ def scan(days_back: int = 730, dry_run: bool = False,
         }
         values.append([row.get(h, "") for h in HEADERS])
 
+    # One batched multi-row append (not sheets.append_job_row per row, which
+    # would cost one round trip per application instead of one for all of them).
+    svc = sheets._service()
     result = svc.spreadsheets().values().append(
-        spreadsheetId=os.environ["GOOGLE_SHEET_ID"],
-        range=f"{os.environ.get('GOOGLE_SHEET_TAB', 'application')}!A1",
+        spreadsheetId=sheets.SHEET_ID,
+        range=f"{sheets.SHEET_TAB}!A1",
         valueInputOption="RAW",
         insertDataOption="INSERT_ROWS",
         body={"values": values},

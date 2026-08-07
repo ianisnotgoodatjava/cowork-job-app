@@ -5,9 +5,6 @@ sheet already used red-for-rejected by hand before this project, so this
 keeps that convention and just makes it automatic.
 """
 
-import os
-from googleapiclient.discovery import build
-from google_auth import get_credentials
 import sheets
 import status as status_mod
 
@@ -31,19 +28,9 @@ STATUS_COLORS = {
 }
 
 
-def _tab_id(svc, sheet_id: str, tab_name: str) -> int:
-    meta = svc.spreadsheets().get(spreadsheetId=sheet_id).execute()
-    for s in meta["sheets"]:
-        if s["properties"]["title"] == tab_name:
-            return s["properties"]["sheetId"]
-    raise ValueError(f"Tab not found: {tab_name}")
-
-
 def apply_status_colors(dry_run: bool = False) -> None:
-    svc = build("sheets", "v4", credentials=get_credentials())
-    sheet_id = os.environ["GOOGLE_SHEET_ID"]
-    tab = os.environ.get("GOOGLE_SHEET_TAB", "application")
-    tab_id = _tab_id(svc, sheet_id, tab)
+    svc = sheets._service()
+    tab_id = sheets._tab_id(svc)
 
     rows = sheets.list_rows()
     n_cols = len(sheets.HEADERS)
@@ -87,6 +74,6 @@ def apply_status_colors(dry_run: bool = False) -> None:
 
     for i in range(0, len(requests), 100):
         svc.spreadsheets().batchUpdate(
-            spreadsheetId=sheet_id, body={"requests": requests[i:i + 100]}
+            spreadsheetId=sheets.SHEET_ID, body={"requests": requests[i:i + 100]}
         ).execute()
     print(f"Applied formatting to {len(requests)} rows.")

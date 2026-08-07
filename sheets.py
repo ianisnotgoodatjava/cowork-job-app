@@ -8,9 +8,20 @@ from config import HEADERS
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "Applications")
 
+# header -> column letter, built once instead of HEADERS.index(header) (an
+# O(n) scan) plus letter arithmetic on every column written.
+_COL_LETTER = {h: chr(ord("A") + i) for i, h in enumerate(HEADERS)}
+
+_svc = None
+
 
 def _service():
-    return build("sheets", "v4", credentials=get_credentials())
+    # Every caller in a run shares one client instead of rebuilding it (and
+    # re-reading token.json) on every row.
+    global _svc
+    if _svc is None:
+        _svc = build("sheets", "v4", credentials=get_credentials())
+    return _svc
 
 
 def ensure_headers():
@@ -65,24 +76,25 @@ def append_job_row(job: dict) -> int:
 
 
 def update_row(row_number: int, updates: dict):
-    """Updates specific columns (by header name) on an existing row.
+    """Updates specific columns (by header name) on an existing row, in one
+    batched write rather than one request per column.
 
     Columns the sheet no longer has are dropped rather than raised on: the
     tracker was trimmed to A-J, and a scanner that still passes "Notes" should
     record the status it came for instead of failing the whole write.
     """
+    data = [
+        {"range": f"{SHEET_TAB}!{_COL_LETTER[header]}{row_number}",
+         "values": [[value]]}
+        for header, value in updates.items() if header in _COL_LETTER
+    ]
+    if not data:
+        return
     svc = _service()
-    for header, value in updates.items():
-        if header not in HEADERS:
-            continue
-        col_index = HEADERS.index(header)
-        col_letter = chr(ord("A") + col_index)
-        svc.spreadsheets().values().update(
-            spreadsheetId=SHEET_ID,
-            range=f"{SHEET_TAB}!{col_letter}{row_number}",
-            valueInputOption="RAW",
-            body={"values": [[value]]},
-        ).execute()
+    svc.spreadsheets().values().batchUpdate(
+        spreadsheetId=SHEET_ID,
+        body={"valueInputOption": "RAW", "data": data},
+    ).execute()
 
 
 def list_rows() -> list[dict]:
@@ -99,11 +111,17 @@ def list_rows() -> list[dict]:
 
 
 def get_row(row_number: int) -> dict:
-    """Return a single row by its 1-indexed sheet row number."""
-    for row in list_rows():
-        if row["row_number"] == row_number:
-            return row
-    raise ValueError(f"No application on row {row_number}")
+    """Return a single row by its 1-indexed sheet row number, without
+    downloading the whole sheet to find it."""
+    svc = _service()
+    result = svc.spreadsheets().values().get(
+        spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!A{row_number}:Z{row_number}"
+    ).execute()
+    values = result.get("values") or [[]]
+    if not values[0]:
+        raise ValueError(f"No application on row {row_number}")
+    padded = values[0] + [""] * (len(HEADERS) - len(values[0]))
+    return {"row_number": row_number, **dict(zip(HEADERS, padded))}
 
 
 def _tab_id(svc) -> int:

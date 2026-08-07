@@ -10,8 +10,16 @@ from googleapiclient.discovery import build
 from google_auth import get_credentials
 
 
+_svc = None
+
+
 def _service():
-    return build("gmail", "v1", credentials=get_credentials())
+    # Shared across a run instead of rebuilt on every call — scanners issue
+    # thousands of these.
+    global _svc
+    if _svc is None:
+        _svc = build("gmail", "v1", credentials=get_credentials())
+    return _svc
 
 
 def _retry(call, attempts: int = 3, base_delay: float = 2.0):

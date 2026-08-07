@@ -11,8 +11,6 @@ outright, and only consults the model for emails the rules passed over.
 """
 
 import pickle
-import re
-import html
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.calibration import CalibratedClassifierCV
@@ -20,13 +18,13 @@ from sklearn.svm import LinearSVC
 from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import make_pipeline
 
+import interview_signals
+
 MODEL_FILE = "rejection_model.pkl"
-_TAG = re.compile(r"<[^>]+>")
-_WS = re.compile(r"\s+")
 
 
 def clean(body: str) -> str:
-    return _WS.sub(" ", html.unescape(_TAG.sub(" ", body or ""))).lower()[:3000]
+    return interview_signals.plain_text(body)[:3000]
 
 
 def build_training_set(days_back: int = 500):

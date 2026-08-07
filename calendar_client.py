@@ -37,13 +37,19 @@ _MEETING_HINT_RE = re.compile(
 )
 
 
+_svc = None
+
+
 def _service():
+    global _svc
     if not has_calendar_access():
         raise RuntimeError(
             "calendar access not granted yet — run: "
             "./venv/bin/python cli.py enable-calendar"
         )
-    return build("calendar", "v3", credentials=get_credentials())
+    if _svc is None:
+        _svc = build("calendar", "v3", credentials=get_credentials())
+    return _svc
 
 
 def list_events(days_back: int = 460, calendar_id: str = "primary") -> list[dict]:
@@ -102,7 +108,18 @@ def event_date(event: dict) -> datetime.date | None:
         return None
 
 
+_domains_cache: dict[str, set[str]] = {}
+
+
 def _domains(event: dict) -> set[str]:
+    # matches_company() is called once per (row, event) pair — company_meetings()
+    # loops over every event for every row in the sheet — but an event's own
+    # attendee domains never depend on which row is asking. Cached by event id
+    # so the extraction happens once per event, not once per (row, event) pair.
+    key = event.get("id", "")
+    if key and key in _domains_cache:
+        return _domains_cache[key]
+
     emails = list(event.get("attendees") or [])
     if event.get("organizer"):
         emails.append(event["organizer"])
@@ -112,6 +129,9 @@ def _domains(event: dict) -> set[str]:
             domain = e.rsplit("@", 1)[1].lower()
             if domain not in _GENERIC_DOMAINS:
                 out.add(domain)
+
+    if key:
+        _domains_cache[key] = out
     return out
 
 

@@ -14,7 +14,7 @@ import gmail_client
 from googleapiclient.discovery import build
 from google_auth import get_credentials
 
-from config import ME_RE as _ME
+from config import ME_RE as _ME, NETWORKING_KEYWORDS
 
 
 def _svc():
@@ -36,8 +36,7 @@ def _thread_has_reply(svc, thread_id: str) -> bool:
 
 
 def scan(days_back: int = 180, min_age_days: int = 7, limit: int = 400) -> None:
-    import cli
-    query = f"in:sent newer_than:{days_back}d {cli.NETWORKING_KEYWORDS}"
+    query = f"in:sent newer_than:{days_back}d {NETWORKING_KEYWORDS}"
     print(f"Searching Gmail: {query}\n")
     msgs = gmail_client.search_messages(query, max_results=limit)
 

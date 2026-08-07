@@ -44,7 +44,6 @@ def build_training_set(days_back: int = 500):
     import gmail_client
     import sheets
     from company_match import company_mentioned, company_in_sender
-    from date_utils import parse_date
     from email.utils import parsedate_to_datetime
     from rejection_scanner import REJECTION_PHRASES, _is_real_rejection
 

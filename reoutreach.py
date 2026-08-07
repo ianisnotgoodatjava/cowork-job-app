@@ -22,7 +22,7 @@ import rejection_scanner
 import sheets
 from company_match import _domain_label, _is_vendor_domain, company_mentioned
 from calendar_client import _GENERIC_DOMAINS
-from config import ME_RE
+from config import ME_RE, NETWORKING_KEYWORDS
 
 
 def _date(msg: dict):
@@ -57,10 +57,8 @@ def _company_domain(msg: dict) -> str:
 
 
 def scan(days_back: int = 520, min_silent_days: int = 21,
-         limit: int = 600, dry_run: bool = True) -> list[dict]:
-    import cli
-
-    query = f"in:sent newer_than:{days_back}d {cli.NETWORKING_KEYWORDS}"
+         limit: int = 600, dry_run: bool = True, use_calendar: bool = True) -> list[dict]:
+    query = f"in:sent newer_than:{days_back}d {NETWORKING_KEYWORDS}"
     print(f"Searching Gmail: {query}\n", flush=True)
     sent = gmail_client.search_messages(query, max_results=limit)
     print(f"{len(sent)} outreach message(s); grouping into threads...\n", flush=True)
@@ -164,6 +162,25 @@ def scan(days_back: int = 520, min_silent_days: int = 21,
         lead["status"] = match.get("Status", "") if match else ""
         if match:
             lead["company"] = match["Company"]
+
+    # A calendar event is a record that the conversation happened, not an
+    # inference from wording — the same cross-reference reply_scanner uses
+    # for Network. It only ever adds warmth here, never removes it: a lead
+    # already warm from an invite email stays warm with no meeting found.
+    if use_calendar:
+        import calendar_client
+        try:
+            events = calendar_client.list_events(days_back=days_back)
+        except Exception as exc:
+            print(f"Calendar unavailable ({exc}) — skipping calendar cross-reference.\n",
+                  flush=True)
+            events = []
+        for lead in leads.values():
+            if lead["warm"]:
+                continue
+            meetings = calendar_client.company_meetings(lead["company"], events)
+            if meetings:
+                lead["warm"] = True
 
     ranked = sorted(leads.values(),
                     key=lambda l: (not l["warm"], -l["silent"]))

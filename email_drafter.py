@@ -4,6 +4,41 @@ from __future__ import annotations
 
 import re
 
+# Gmail's mobile-signature placeholder. Shows up as a floating dot at the end
+# of emails sent from the phone; it is invisible in the composer, so it rode
+# along into the corpus silently until someone actually looked at the raw
+# text.
+_SIGNATURE_ARTIFACT_RE = re.compile(r"[᐀-ᙿ]+")
+
+# Verified typos actually seen in the sent corpus while building outreach
+# examples — not a general spellchecker, just the specific slips that would
+# otherwise get copied into a new draft along with the wording around them.
+_KNOWN_TYPOS = (
+    (re.compile(r"\bapproaches heading\b", re.I), "approaches hedging"),
+)
+
+
+def _clean_reused_text(text: str) -> str:
+    """Strips signature artifacts and known typos out of text pulled from a
+    past email, and collapses whatever blank-line mess that leaves behind."""
+    text = _SIGNATURE_ARTIFACT_RE.sub("", text)
+    for pattern, fix in _KNOWN_TYPOS:
+        text = pattern.sub(fix, text)
+
+    lines = [line.rstrip() for line in text.splitlines()]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    cleaned, blank_run = [], 0
+    for line in lines:
+        if line.strip():
+            blank_run = 0
+            cleaned.append(line)
+        else:
+            blank_run += 1
+            if blank_run <= 1:
+                cleaned.append(line)
+    return "\n".join(cleaned)
+
 
 def _first_name(full_name: str) -> str:
     return full_name.strip().split()[0] if full_name.strip() else "there"
@@ -30,62 +65,56 @@ def _subject_area(row: dict) -> str:
     return f"{title} at {company}"
 
 
-def _team_phrase(row: dict) -> str:
-    title = (row.get("Contact Title") or "").strip()
-    company = (row.get("Company") or "").strip()
-    position = _clean_position(row)
-
-    if title and company and title.lower() not in company.lower():
-        if any(w in title.lower() for w in ("team", "group", "department", "division")):
-            return f"{company}'s {title}"
-        return f"your experience as {title} at {company}"
-
-    if position and company:
-        return f"your experience on {company}'s {position} team"
-
-    if company:
-        return f"your experience at {company}"
-    return "your experience"
+# Below this bar, a retrieved past email is a reasonable starting point even
+# though the topics differ somewhat — swapping in the new company/name is
+# unlikely to leave something incoherent. Below it, the topics are different
+# enough that substitution risks carrying over specifics (a competitor's
+# product, a niche you don't actually share) that only fit the old company.
+_REFERENCE_MIN_SCORE = 0.15
 
 
-def _interest_paragraph(row: dict) -> str:
-    company = (row.get("Company") or "the company").strip()
-    position = _clean_position(row) or "this role"
-    requirements = (row.get("Requirements") or "").strip()
-    contact_title = (row.get("Contact Title") or "").strip()
-    location = (row.get("location") or "").strip()
+def _closest_reference(row: dict) -> dict | None:
+    """Your nearest past outreach email for this row's company/area, or None
+    when nothing in the corpus is close enough to safely reuse."""
+    try:
+        import outreach_retrieval as orx
+    except ImportError:
+        return None
+    try:
+        idx = orx.load_index()
+    except FileNotFoundError:
+        return None
+    query = orx.build_query(
+        company=row.get("Company", ""),
+        area=(row.get("Required Skills & Experience") or "").strip(),
+        title=row.get("Contact Title", ""),
+        role=_clean_position(row),
+    )
+    hits = idx.search(query, k=1)
+    if not hits or hits[0][0] < _REFERENCE_MIN_SCORE:
+        return None
+    return hits[0][1]
 
-    opener = (
-        f"I recently applied to the {position} role at {company} and am very interested "
-        f"in learning more about the team and the work you do."
+
+def _adapt_reference(rec: dict, row: dict, contact_name: str) -> tuple[str, str]:
+    """Reworks the wording of your closest past outreach email onto the new
+    contact/company, rather than falling back to the generic template."""
+    first = _first_name(contact_name) if contact_name else "there"
+    old_company = (rec.get("company") or "").strip()
+    new_company = (row.get("Company") or "the firm").strip()
+
+    body = _clean_reused_text(rec.get("body", ""))
+    if old_company and new_company:
+        body = re.sub(re.escape(old_company), new_company, body, flags=re.I)
+    body = re.sub(
+        r"^(Dear|Hello|Hi)\s+[A-Za-z]+,",
+        (f"\\1 {first}," if contact_name else "Hello,"),
+        body, count=1,
     )
 
-    if requirements:
-        detail = (
-            f"The posting especially caught my attention because of its focus on "
-            f"{requirements}. I'd love to learn more about how your team applies these "
-            f"skills day to day, the types of problems you work on, and what you've found "
-            f"most rewarding in your role."
-        )
-    elif contact_title:
-        detail = (
-            f"Given your role as {contact_title}, I'd love to hear about your career path, "
-            f"what your day-to-day responsibilities look like, and what you've found most "
-            f"rewarding about working at {company}."
-        )
-    else:
-        detail = (
-            f"I'd love to learn more about the team, the types of projects you work on, "
-            f"and what you've found most rewarding about being at {company}."
-        )
-
-    if location and location.lower() not in ("remote", "n/a"):
-        detail = detail.replace(
-            "most rewarding in your role.",
-            f"most rewarding in your role, especially given the {location} location.",
-        )
-
-    return f"{opener}\n\n{detail}"
+    area = rec.get("area") or _subject_area(row)
+    subject = f"Recent NYU Graduate Inquiring about {area} at {new_company}"
+    return subject, body
 
 
 def generate_outreach(row: dict) -> tuple[str, str]:
@@ -95,16 +124,27 @@ def generate_outreach(row: dict) -> tuple[str, str]:
     emails lead with interest in the person's work — saying "I applied to X"
     reads as transactional and invites a recruiting-process reply rather
     than a conversation.
+
+    Prefers adapting your closest past outreach email (found via TF-IDF
+    retrieval over the sent corpus) over the generic template below — your
+    own wording, grounded in a real past email, beats boilerplate every
+    time. Falls back to the template when nothing in the corpus is close
+    enough to reuse without risking mismatched specifics.
     """
-    company = (row.get("Company") or "the firm").strip()
     contact_name = (row.get("Contact Name") or "").strip()
+
+    reference = _closest_reference(row)
+    if reference is not None:
+        return _adapt_reference(reference, row, contact_name)
+
+    company = (row.get("Company") or "the firm").strip()
     contact_title = (row.get("Contact Title") or "").strip()
     first = _first_name(contact_name) if contact_name else "there"
     position = _clean_position(row)
     # The middle paragraph carries the whole email. A generic version is
     # always weaker than one written with real knowledge of the desk, so
-    # prefer the Job Description when it is filled in.
-    area = (row.get("Job Description") or "").strip()
+    # prefer the sheet's captured posting detail when it is filled in.
+    area = (row.get("Required Skills & Experience") or "").strip()
 
     subject = f"Recent NYU Graduate Inquiring about {_subject_area(row)}"
 

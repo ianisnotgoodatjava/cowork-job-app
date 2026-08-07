@@ -17,7 +17,7 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (BaseDocTemplate, Frame, KeepTogether,
-                                PageTemplate, Paragraph, Spacer)
+                                PageTemplate, Paragraph)
 
 import prep_package
 
@@ -99,7 +99,7 @@ def build(category: str, parsed: dict | None = None, company_name: str = "",
     doc = BaseDocTemplate(path, pagesize=LETTER,
                           leftMargin=0.6 * inch, rightMargin=0.6 * inch,
                           topMargin=0.45 * inch, bottomMargin=0.4 * inch,
-                          title=f"Ian Liu — Resume", author="Ian Liu")
+                          title="Ian Liu — Resume", author="Ian Liu")
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
     doc.addPageTemplates([PageTemplate(id="one", frames=[frame])])

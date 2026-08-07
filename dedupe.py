@@ -15,7 +15,6 @@ Deleting is opt-in and only ever removes a row the Gmail import created — if
 both rows in a pair are yours, it reports and leaves them alone.
 """
 
-import datetime
 import re
 
 import sheets

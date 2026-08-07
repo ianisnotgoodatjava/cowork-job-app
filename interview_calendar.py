@@ -18,7 +18,6 @@ import zoneinfo
 
 from googleapiclient.discovery import build
 
-import gmail_client
 from config import ME_RE
 from google_auth import get_credentials
 

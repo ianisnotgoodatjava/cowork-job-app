@@ -96,8 +96,12 @@ def cmd_age_stale(args):
     stale.run(days=args.days, dry_run=not args.write)
 
 
+def _since(args):
+    return parse_date(args.since) if args.since else None
+
+
 def cmd_list(args):
-    since = parse_date(args.since) if args.since else None
+    since = _since(args)
     for r in sheets.list_rows():
         if since:
             applied = parse_date(r.get("Applied Draes", ""))
@@ -113,13 +117,11 @@ def cmd_update_status(args):
 
 
 def cmd_scan_rejections(args):
-    since = parse_date(args.since) if args.since else None
-    rejection_scanner.scan(days_back=args.days, dry_run=args.dry_run, since_date=since)
+    rejection_scanner.scan(days_back=args.days, dry_run=args.dry_run, since_date=_since(args))
 
 
 def cmd_scan_job_links(args):
-    since = parse_date(args.since) if args.since else None
-    link_finder.scan(days_back=args.days, dry_run=args.dry_run, since_date=since)
+    link_finder.scan(days_back=args.days, dry_run=args.dry_run, since_date=_since(args))
 
 
 def cmd_scan_new_applications(args):

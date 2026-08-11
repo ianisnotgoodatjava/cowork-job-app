@@ -22,6 +22,11 @@ CONFIRMATION_PHRASES = [
     "application confirmation",
     "we have received your application",
     "your application was submitted",
+    # LinkedIn's own confirmation ("Ian, your application was sent to X"),
+    # distinct from the employer's ATS confirmation. Missing this meant every
+    # LinkedIn "Easy Apply" went unscanned unless the employer separately
+    # confirmed too — eight applications over 30 days, silently absent.
+    "your application was sent to",
     "thank you for your interest",
 ]
 

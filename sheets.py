@@ -59,20 +59,29 @@ def ensure_headers():
 
 
 def append_job_row(job: dict) -> int:
-    """Appends a job application row. Returns the 1-indexed row number written."""
+    """Appends a job application row. Returns the 1-indexed row number written.
+
+    Writes to an explicit row number rather than using the Sheets API's own
+    `values.append` + INSERT_ROWS: that call auto-detects "the table" from the
+    given range and inserts right after wherever it decides that table ends,
+    which is not necessarily the sheet's actual last row. On this sheet it
+    silently spliced a new row in after row 350 and pushed roughly 55 rows of
+    real data down by three — the values were intact, just at the wrong row
+    numbers, which is worse than losing them since nothing looked broken.
+    Finding the true last row ourselves and writing there directly has no such
+    ambiguity.
+    """
     ensure_headers()
     row = [job.get(h, "") for h in HEADERS]
     svc = _service()
-    result = svc.spreadsheets().values().append(
+    next_row = len(list_rows()) + 2  # +1 for the header, +1 to land past the last row
+    svc.spreadsheets().values().update(
         spreadsheetId=SHEET_ID,
-        range=f"{SHEET_TAB}!A1",
+        range=f"{SHEET_TAB}!A{next_row}",
         valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
         body={"values": [row]},
     ).execute()
-    updated_range = result["updates"]["updatedRange"]
-    row_number = int(updated_range.split("!")[1].split(":")[0][1:])
-    return row_number
+    return next_row
 
 
 def update_row(row_number: int, updates: dict):

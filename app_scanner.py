@@ -9,6 +9,7 @@ import re
 from email.utils import parsedate_to_datetime
 
 import gmail_client
+import linkedin_helper
 import sheets
 from config import HEADERS
 from company_match import normalize
@@ -405,3 +406,13 @@ def scan(days_back: int = 730, dry_run: bool = False,
         body={"values": values},
     ).execute()
     print(f"\nAdded {result['updates']['updatedRows']} row(s) to the sheet.")
+
+    # A LinkedIn search link, not a picked contact: automating who to email
+    # would mean either scraping LinkedIn (against its ToS, and a real risk
+    # to the account) or a paid search API this project doesn't have. This is
+    # the part that's actually safe to automate — so it's here waiting
+    # instead of something you have to come back and ask for.
+    print("\nLinkedIn search for a contact at each new company:")
+    for v in sorted(new_rows.values(), key=lambda x: x["date"]):
+        url = linkedin_helper.people_search_url(v["company"])
+        print(f"  {v['company']:35s} {url}")

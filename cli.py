@@ -176,6 +176,11 @@ def cmd_backfill_job_descriptions(args):
     jd_backfill.run(dry_run=args.dry_run, limit=args.limit, days_back=args.days)
 
 
+def cmd_who_replies(args):
+    import contact_policy
+    contact_policy.analyse(days_back=args.days, limit=args.limit)
+
+
 def cmd_corrections(args):
     import corrections
     if args.row:
@@ -309,6 +314,11 @@ def cmd_draft_outreach_email(args):
 
 def cmd_auto_draft_outreach(args):
     row = sheets.get_row(args.row)
+    if args.name:
+        # The sheet has no Contact Name column to read this from (trimmed to
+        # A-J), so the generator would otherwise always greet with "Hello,"
+        # instead of the person's actual name.
+        row["Contact Name"] = args.name
     if args.follow_up:
         subject, body = email_drafter.generate_follow_up(row)
     else:
@@ -405,6 +415,11 @@ def main():
     p.add_argument("--limit", type=int, default=60, help="Max rows to fill in one pass (default 60)")
     p.add_argument("--days", type=int, default=460, help="How far back to read application emails")
     p.set_defaults(func=cmd_backfill_job_descriptions)
+
+    p = sub.add_parser("who-replies", help="Reply and bounce rates from your own outreach history — who is actually worth emailing")
+    p.add_argument("--days", type=int, default=520)
+    p.add_argument("--limit", type=int, default=600)
+    p.set_defaults(func=cmd_who_replies)
 
     p = sub.add_parser("corrections", help="Show fields you've corrected (scanners never overwrite these); with --row, set and lock one")
     p.add_argument("--row", type=int, help="Row to correct and lock")
@@ -519,6 +534,7 @@ def main():
     p = sub.add_parser("auto-draft-outreach", help="Auto-generate an outreach email from a row, matching your past networking tone, and create it as a Gmail draft")
     p.add_argument("--row", type=int, required=True)
     p.add_argument("--to", required=True)
+    p.add_argument("--name", help="Contact's first/full name, for the greeting (sheet has no Contact Name column to read it from)")
     p.add_argument("--follow-up", action="store_true", help="Generate a follow-up instead of the initial outreach")
     p.add_argument("--attach", action="append", default=[], help="Path to attach (e.g. resume.pdf), repeatable")
     p.add_argument("--dry-run", action="store_true", help="Print the generated email without creating a Gmail draft")

@@ -96,9 +96,16 @@ def _closest_reference(row: dict) -> dict | None:
     return hits[0][1]
 
 
-def _adapt_reference(rec: dict, row: dict, contact_name: str) -> tuple[str, str]:
+def _adapt_reference(rec: dict, row: dict, contact_name: str) -> tuple[str, str] | None:
     """Reworks the wording of your closest past outreach email onto the new
-    contact/company, rather than falling back to the generic template."""
+    contact/company, or None if the old company's name can't be fully swapped
+    out — the KBRA row once drew on a Fitch Ratings email and kept saying
+    "Fitch" in the body, because the substitution only replaced the exact
+    company string, not every way that company got referred to. Silently
+    mailing the wrong company's name is worse than the generic template, so
+    this verifies the swap actually took before trusting the result."""
+    from company_match import _core
+
     first = _first_name(contact_name) if contact_name else "there"
     old_company = (rec.get("company") or "").strip()
     new_company = (row.get("Company") or "the firm").strip()
@@ -106,14 +113,41 @@ def _adapt_reference(rec: dict, row: dict, contact_name: str) -> tuple[str, str]
     body = _clean_reused_text(rec.get("body", ""))
     if old_company and new_company:
         body = re.sub(re.escape(old_company), new_company, body, flags=re.I)
+
+    # Every word of the core phrase, not just the first or the whole phrase
+    # together: _core("Fitch Ratings") is "fitch ratings", but the leaked
+    # reference was the bare word "Fitch" alone, and _core("B. Riley
+    # Securities") is "b riley" — "b" is too short to mean anything, but
+    # "riley" leaking through is exactly the same failure. Checking each
+    # word means an occasional false trigger on a generic word one company's
+    # core phrase happens to share with the industry (e.g. "ratings") — that
+    # just falls back to the template, which is the safe direction to fail
+    # in. A wrong company's name actually reaching your draft is not.
+    # Same company on both sides (a genuine repeat topic, like a second role
+    # at Conning) isn't a swap at all — the brand word is supposed to still
+    # be there, and flagging it would reject a reference that never needed
+    # adapting in the first place.
+    same_company = _core(old_company) == _core(new_company)
+    old_words = [] if same_company else [w for w in _core(old_company).split() if len(w) >= 3]
+    if old_words and re.search(
+            r"\b(" + "|".join(re.escape(w) for w in old_words) + r")\b", body, re.I):
+        return None
+
     body = re.sub(
         r"^(Dear|Hello|Hi)\s+[A-Za-z]+,",
         (f"\\1 {first}," if contact_name else "Hello,"),
         body, count=1,
     )
 
-    area = rec.get("area") or _subject_area(row)
-    subject = f"Recent NYU Graduate Inquiring about {area} at {new_company}"
+    # _subject_area(row) already appends " at {company}" itself when the
+    # title doesn't already read as "X at Y" — appending it again here
+    # unconditionally produced "... at Conning at Conning" whenever the
+    # reference's own area was blank and this fell through to it.
+    area = (rec.get("area") or "").strip() or _subject_area(row)
+    if " at " in area.lower():
+        subject = f"Recent NYU Graduate Inquiring about {area}"
+    else:
+        subject = f"Recent NYU Graduate Inquiring about {area} at {new_company}"
     return subject, body
 
 
@@ -135,7 +169,9 @@ def generate_outreach(row: dict) -> tuple[str, str]:
 
     reference = _closest_reference(row)
     if reference is not None:
-        return _adapt_reference(reference, row, contact_name)
+        adapted = _adapt_reference(reference, row, contact_name)
+        if adapted is not None:
+            return adapted
 
     company = (row.get("Company") or "the firm").strip()
     contact_title = (row.get("Contact Title") or "").strip()

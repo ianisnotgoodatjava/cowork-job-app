@@ -8,6 +8,7 @@ a wrong row is worse than a missing one, since you'd have to find and fix it.
 import re
 from email.utils import parsedate_to_datetime
 
+import email_drafter
 import gmail_client
 import linkedin_helper
 import sheets
@@ -395,17 +396,23 @@ def scan(days_back: int = 730, dry_run: bool = False,
         }
         values.append([row.get(h, "") for h in HEADERS])
 
-    # One batched multi-row append (not sheets.append_job_row per row, which
-    # would cost one round trip per application instead of one for all of them).
+    # Writes to an explicit row number rather than values().append() +
+    # INSERT_ROWS, for the same reason sheets.append_job_row() does: that
+    # call auto-detects "the table" from the given range and inserts right
+    # after wherever it decides that ends, which is not necessarily the
+    # sheet's actual last row — it has silently spliced a new row into the
+    # middle of real data before. One batched write (not sheets.append_job_row
+    # per row, which would cost one round trip per application) starting at
+    # the true next row has no such ambiguity.
     svc = sheets._service()
-    result = svc.spreadsheets().values().append(
+    next_row = len(sheets.list_rows()) + 2  # +1 for the header, +1 to land past the last row
+    svc.spreadsheets().values().update(
         spreadsheetId=sheets.SHEET_ID,
-        range=f"{sheets.SHEET_TAB}!A1",
+        range=f"{sheets.SHEET_TAB}!A{next_row}",
         valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
         body={"values": values},
     ).execute()
-    print(f"\nAdded {result['updates']['updatedRows']} row(s) to the sheet.")
+    print(f"\nAdded {len(values)} row(s) to the sheet.")
 
     # A LinkedIn search link, not a picked contact: automating who to email
     # would mean either scraping LinkedIn (against its ToS, and a real risk
@@ -416,3 +423,15 @@ def scan(days_back: int = 730, dry_run: bool = False,
     for v in sorted(new_rows.values(), key=lambda x: x["date"]):
         url = linkedin_helper.people_search_url(v["company"])
         print(f"  {v['company']:35s} {url}")
+
+    # The reach-out email itself, fully written and sitting in Drafts —
+    # everything but the recipient, which is the one part that genuinely
+    # needs a human (or me, live) picking the right person from the link
+    # above. generate_outreach() is the same retrieval-grounded generator
+    # used everywhere else, with the cross-company contamination guard.
+    print("\nDraft reach-out email prepared for each new company (fill in the recipient before sending):")
+    for v in sorted(new_rows.values(), key=lambda x: x["date"]):
+        draft_row = {"Company": v["company"], "Position": v["role"]}
+        subject, body = email_drafter.generate_outreach(draft_row)
+        draft_id = gmail_client.create_draft("", subject, body)
+        print(f"  {v['company']:35s} draft {draft_id} — \"{subject}\"")

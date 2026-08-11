@@ -17,9 +17,16 @@ CORPUS_FILE = "outreach_corpus.json"
 
 NETWORKING_QUERY = f"in:sent {NETWORKING_KEYWORDS}"
 
-# "Recent NYU Graduate Inquiring about {AREA} at {COMPANY}"
+# "Recent NYU Graduate Inquiring about {AREA} at {COMPANY}" — and the older
+# "NYU Student/Graduate Interested in {AREA} at {COMPANY}" phrasing from
+# before the subject line settled on "Inquiring about". Records that don't
+# match either leave area/company blank, which downstream (email_drafter's
+# reference-adaptation) means there's no company name left to verify a swap
+# against — a real Conning outreach email was retrieved with the "Interested
+# in" phrasing and came back with area="" company="" purely because the
+# regex only knew one phrasing, not because the email lacked the info.
 _SUBJECT_RE = re.compile(
-    r"inquiring about\s+(?P<area>.+?)\s+at\s+(?P<company>.+?)\s*$", re.I
+    r"(?:inquiring about|interested in)\s+(?P<area>.+?)\s+at\s+(?P<company>.+?)\s*$", re.I
 )
 _GREETING_RE = re.compile(r"^\s*(?:dear|hi|hello)\s+([A-Z][a-z]+)", re.I | re.M)
 # Gmail quotes the prior message under these markers; everything after is

@@ -41,8 +41,13 @@ LEAD_ARTICLE = re.compile(r"^(?:the|our|a|an|this|your)\s+", re.I)
 # Lead-ins a subject-line capture drags along: "Application Received - Associate,
 # Investor Research", "the position of Analyst-Risk Management".
 LEAD_PHRASE = re.compile(
+    # \b after re/fwd/update: without it, this matched the first two letters
+    # of "Research Analyst..." as the "Re:" reply prefix and stripped them,
+    # silently turning "Research Analyst" into "search Analyst" and creating
+    # a duplicate ABI Research row that couldn't be recognized as the same
+    # application already on the sheet.
     r"^(?:application\s+(?:received|confirmation|for)|thank you for applying(?:\s+to)?|"
-    r"re|fwd|update(?:\s+on)?)\s*[-–:]?\s*|"
+    r"re\b|fwd\b|update(?:\s+on)?\b)\s*[-–:]?\s*|"
     r"^(?:the\s+)?(?:position|role|opening|opportunity|vacancy)\s+(?:of|for)\s+", re.I)
 REQ_TRAIL = re.compile(
     r"\s*[-–(,:]?\s*(?:\(?\s*(?:req(?:uisition)?\s*(?:id)?\s*[:#]?\s*)?"

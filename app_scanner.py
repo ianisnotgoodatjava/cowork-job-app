@@ -21,6 +21,12 @@ from link_finder import CONFIRMATION_PHRASES
 # ("interest in Analyst, Fixed Income Pricing"), and a role written into the
 # company column is worse than no row at all.
 _SUBJECT_COMPANY_RES = [
+    # LinkedIn's own Easy Apply receipt ("Ian, your application was sent to
+    # Adore Me") — distinct from an employer's ATS confirmation, and the
+    # subject never carries a role, only the company. Role falls through to
+    # the body-reading extractor below, same as any other subject that
+    # doesn't name it.
+    re.compile(r"\byour application was sent to\s+(.+?)\s*$", re.I),
     re.compile(r"\byour application to\s+.+?\s+at\s+(.+?)\s*$", re.I),
     re.compile(r"\bapplying to(?:\s+the)?\s+(.+?)(?:\s*[!.]|\s*$)", re.I),
     re.compile(r"\bapplication (?:to|with)\s+(.+?)(?:\s*[!.]|\s*$)", re.I),
@@ -38,8 +44,13 @@ _ROLE_LIKE_RE = re.compile(
 _ROLE_TAIL_RE = re.compile(r"\s+[-–]\s+(analyst|associate|trader|senior|junior).*$", re.I)
 # Trailing boilerplate/requisition noise left on a captured company name,
 # e.g. "iCapital - Application Received", "BNY - 69959", "First Horizon - FHNF".
+# The all-caps branch must stay case-sensitive despite the re.I on the rest
+# of the pattern (needed so "application received" matches regardless of
+# case) -- with re.I applied to it too, [A-Z]{3,} matched any 3+ letter word
+# case-insensitively, not just real all-caps codes, and silently truncated
+# "Madison-Davis, LLC" down to "Madison".
 _COMPANY_TAIL_RE = re.compile(
-    r"\s*[-–]\s*(application received|\d+|[A-Z]{3,}\b.*)$", re.I
+    r"\s*[-–]\s*(application received|\d+|(?-i:[A-Z]{3,})\b.*)$", re.I
 )
 # "Risk Analyst at Fanatics" — the real company follows the final " at ".
 _TRAILING_AT_RE = re.compile(r"^.*\bat\s+(.+)$", re.I)

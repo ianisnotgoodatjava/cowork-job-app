@@ -72,10 +72,26 @@ def _subject_area(row: dict) -> str:
 # product, a niche you don't actually share) that only fit the old company.
 _REFERENCE_MIN_SCORE = 0.15
 
+# A bare "Analyst" isn't a real subject to search on — retrieval against it
+# is really just a company-name search, and TF-IDF can still return a
+# moderately-high score from incidental word overlap with nothing to do with
+# the actual role. "Traffic New York" (an Entry Level Management Trainee
+# posting) retrieved a KBRA CMBS email this way at score 0.29, comfortably
+# over the threshold above, and would have gone out talking about structured
+# products and commercial real estate loans for a role that has nothing to
+# do with either.
+_GENERIC_TITLES = {"analyst", "associate", "intern", "analyst i", "senior analyst"}
+
 
 def _closest_reference(row: dict) -> dict | None:
     """Your nearest past outreach email for this row's company/area, or None
     when nothing in the corpus is close enough to safely reuse."""
+    area = (row.get("Required Skills & Experience") or "").strip()
+    title = (row.get("Contact Title") or "").strip()
+    role = _clean_position(row)
+    if not area and not title and role.lower().strip() in _GENERIC_TITLES:
+        return None
+
     try:
         import outreach_retrieval as orx
     except ImportError:
@@ -85,10 +101,7 @@ def _closest_reference(row: dict) -> dict | None:
     except FileNotFoundError:
         return None
     query = orx.build_query(
-        company=row.get("Company", ""),
-        area=(row.get("Required Skills & Experience") or "").strip(),
-        title=row.get("Contact Title", ""),
-        role=_clean_position(row),
+        company=row.get("Company", ""), area=area, title=title, role=role,
     )
     hits = idx.search(query, k=1)
     if not hits or hits[0][0] < _REFERENCE_MIN_SCORE:
@@ -214,9 +227,8 @@ def generate_outreach(row: dict) -> tuple[str, str]:
 def _interest_para(area: str, position: str, company: str) -> str:
     # A bare "Analyst" is not a subject anyone can be interested in; fall
     # through to the company phrasing rather than emit "interested in analyst".
-    generic = {"analyst", "associate", "intern", "analyst i", "senior analyst"}
     pos = position.lower().strip()
-    subject = area.lower() if area else ("" if pos in generic else pos)
+    subject = area.lower() if area else ("" if pos in _GENERIC_TITLES else pos)
     if subject:
         opening = f"I've become increasingly interested in {subject} because of"
     else:

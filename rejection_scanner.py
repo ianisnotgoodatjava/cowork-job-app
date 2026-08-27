@@ -99,6 +99,15 @@ DECISIVE_PHRASES = [
     "chosen to move forward with another",
     "selected another candidate",
     "we have decided to pursue",
+    # Huntington's Workday template: "although your qualifications are
+    # impressive, at this time we have chosen not to pursue your application
+    # further". The list had "pursue other candidates" and "we have decided
+    # to pursue", neither of which matches a firm declining without naming
+    # anyone else — so the row stayed 'applied' and outreach was drafted to
+    # someone on a desk that had already said no.
+    "not to pursue your application",
+    "chosen not to pursue",
+    "decided not to pursue",
     "not to proceed with your",
     "will not be extending",
 # Wording found by sampling rejections these rules were missing.

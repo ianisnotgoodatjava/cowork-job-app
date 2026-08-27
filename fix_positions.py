@@ -29,7 +29,18 @@ PLACEHOLDER = "analyst"
 IMPORT_NOTE = "Auto-added from Gmail"
 
 # Ordered most-specific first. Each must capture the title alone.
+#
+# The first group are subject-line shapes. The originals were written for body
+# prose ("your application for the position of ...") and matched almost no
+# subject, which is where the title usually is:
+#   "Your application to Risk Analyst at Hartree Partners"     (LinkedIn)
+#   "Status Update: 2026 Public Fixed Income Analyst - Job ID"  (MetLife)
+#   "Thank you for your interest in Commercial & CX Graduate Associate"
 _ROLE_RES = [
+    re.compile(r"\bapplication (?:to|for)\s+(?:the\s+)?([^,;\n]{4,70}?)\s+(?:at|with)\s+[A-Z0-9]", re.I),
+    re.compile(r"^\s*status update:\s*([^,;\n]{4,70}?)\s*(?:[-–]\s*job\s*id|position with|\bat\b|$)", re.I),
+    re.compile(r"\bthank you for (?:your )?(?:applying|interest)(?: in| to| for)?\s+(?:the\s+)?([^,;\n(]{4,70}?)\s*(?:\(|position|role|opening|$)", re.I),
+    re.compile(r"\byour application for\s+(?:the\s+)?([^,;\n(]{4,70}?)\s*(?:\(|position|role|opening|$)", re.I),
     re.compile(r"\bposition of\s+(?:the\s+)?([^.,;\n(]{4,70})", re.I),
     re.compile(r"\b(?:job title|position|role)\s*:\s*([^.,;\n(]{4,70})", re.I),
     re.compile(r"\bapplication for (?:the\s+)?(?:position of\s+)?([^.,;\n(]{4,70}?)\s*(?:position|role|opening)?\b[.,;\n]", re.I),
@@ -100,8 +111,15 @@ def extract_role(subject: str, body: str) -> str:
 
 
 def _is_import_placeholder(row: dict) -> bool:
-    return (IMPORT_NOTE in (row.get("Notes") or "")
-            and (row.get("Position") or "").strip().lower() == PLACEHOLDER)
+    """A row whose title is the import's placeholder rather than a real one.
+
+    This used to also require the "Auto-added from Gmail" marker in Notes.
+    The sheet was later trimmed to columns A-J, Notes went with it, and the
+    test became permanently false — the command reported nothing to do while
+    116 placeholder rows sat in the sheet. The title alone is the signal:
+    nobody hand-types a role of exactly "Analyst".
+    """
+    return (row.get("Position") or "").strip().lower() == PLACEHOLDER
 
 
 def run(dry_run: bool = True, days_back: int = 520) -> None:

@@ -106,6 +106,35 @@ def update_row(row_number: int, updates: dict):
     ).execute()
 
 
+def update_rows(patches: dict[int, dict], chunk: int = 500) -> int:
+    """Applies many row updates in one write instead of one call per row.
+
+    `update_row` already batches the columns within a single row, but a
+    sweep over the whole sheet still cost one HTTP round trip per row — a
+    few hundred of them for a column-wide cleanup, which is slow enough to
+    hit rate limits. The Sheets API takes ranges from any number of rows in
+    a single batchUpdate, so the whole sweep becomes one call.
+
+    Returns the number of cell ranges written.
+    """
+    data = [
+        {"range": f"{SHEET_TAB}!{_COL_LETTER[header]}{row_number}",
+         "values": [[value]]}
+        for row_number, updates in patches.items()
+        for header, value in updates.items() if header in _COL_LETTER
+    ]
+    if not data:
+        return 0
+    svc = _service()
+    # Chunked so one enormous sweep cannot exceed the request size limit.
+    for i in range(0, len(data), chunk):
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"valueInputOption": "RAW", "data": data[i:i + chunk]},
+        ).execute()
+    return len(data)
+
+
 def list_rows() -> list[dict]:
     """Returns all logged applications as a list of dicts, in sheet order."""
     svc = _service()

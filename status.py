@@ -43,6 +43,26 @@ _ALIASES: list[tuple[tuple[str, ...], str]] = [
 ]
 
 
+# How a canonical status is spelled when written back to the sheet. The sheet
+# had "Applied" from one writer and "applied" from another, plus "Rejected"
+# and "rejected", because each caller hardcoded its own literal. Write through
+# `display()` and that cannot happen again; `normalize()` still reads anything.
+DISPLAY = {
+    APPLIED: "Applied",
+    INTERVIEWING: "Interviewing",
+    INTERVIEW_REJECTED: "Interview-Rejected",
+    REJECTED: "Rejected",
+    OFFER: "Offer",
+    NO_RESPONSE: "No Response",
+}
+
+
+def display(raw: str) -> str:
+    """The spelling to write to the sheet. Unrecognized text is left alone."""
+    canonical = normalize(raw)
+    return DISPLAY.get(canonical, (raw or "").strip())
+
+
 def normalize(raw: str) -> str:
     s = (raw or "").strip().lower()
     if not s:

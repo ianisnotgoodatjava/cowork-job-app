@@ -147,6 +147,15 @@ _CONDITIONAL_LEAD_RE = re.compile(
 )
 
 
+# LinkedIn never says no in words. Its rejection notice reads "Your update
+# from <company>" with no decisive phrase anywhere in the visible text — the
+# only tell is the tracking parameter on its own links, which literally spells
+# out `email_jobs_application_rejected`. Adore Me's rejection sat undetected
+# because of this, and LinkedIn is where most of these applications go.
+_LINKEDIN_REJECTED_RE = re.compile(
+    r"email[_%-]?5?f?jobs[_%-]?5?f?application[_%-]?5?f?rejected", re.I)
+
+
 _MODEL = None
 _MODEL_TRIED = False
 # CV F1 is ~0.77, so the model is a useful net but not trustworthy at the
@@ -169,7 +178,11 @@ def _model():
 
 def _is_real_rejection(msg: dict) -> str | None:
     """Returns the decisive phrase found in the body, or None."""
-    text = interview_signals.plain_text(msg.get("body", ""))
+    raw = msg.get("body", "") or ""
+    if _LINKEDIN_REJECTED_RE.search(raw):
+        return "linkedin application_rejected notice"
+
+    text = interview_signals.plain_text(raw)
     for phrase in DECISIVE_PHRASES:
         idx = text.find(phrase)
         while idx >= 0:

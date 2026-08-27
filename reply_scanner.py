@@ -6,14 +6,19 @@ Two columns move here, from three sources of evidence:
     rows still sitting at `applied` are touched: a row that already reached
     `interview-rejected`, `rejected` or `offer` has a later, better-known
     outcome and must never be dragged backwards.
-  * Network -> Yes, when a real person at the company engaged with you at
-    all. That is the question the Network column answers — did the outreach
-    connect — and it stays Yes even if the role was later rejected.
-    Recruiters count; an automated ATS address never does.
+  * Network -> Yes, when you and a person at the company actually had a
+    conversation. Not "someone there sent you mail" — a recruiter's rejection
+    letter is written by a human on the company's own domain and is not a
+    connection. It stays Yes even if the role was later rejected.
 
 Evidence, weakest to strongest:
-  1. Invitation wording in an inbound email ("availability for a phone screen").
-  2. A human at the company's own domain replying to you at all.
+  1. A human at the company replying inside a thread you had already written
+     into. The ordering is the whole test: they answered you. Mail arriving in
+     a thread you never wrote into is a broadcast, not a conversation, and
+     your own "thanks for letting me know" reply to a rejection does not
+     turn that thread into one.
+  2. Your own note back to them ("pleasure speaking with you earlier"), which
+     survives even when their side of the thread does not.
   3. A calendar event with them — a record that the conversation happened,
      not an inference from wording.
 """
@@ -60,6 +65,49 @@ def _is_open(row: dict) -> bool:
     return status_mod.normalize(row.get("Status", "")) == status_mod.APPLIED
 
 
+def _my_thread_times(days_back: int) -> dict[str, datetime.datetime]:
+    """threadId -> the earliest moment you wrote into that thread.
+
+    One metadata-only Gmail query. The timestamp matters as much as the
+    membership: a reply only proves a connection if it came *after* something
+    you sent, otherwise every rejection you politely acknowledged would count
+    as networking.
+    """
+    import email.utils
+    sent = gmail_client.search_messages(
+        f"in:sent newer_than:{days_back}d", include_body=False,
+        max_results=4000)
+    first: dict[str, datetime.datetime] = {}
+    for msg in sent:
+        tid = msg.get("threadId")
+        if not tid or not msg.get("date"):
+            continue
+        try:
+            when = email.utils.parsedate_to_datetime(msg["date"])
+        except (TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=datetime.timezone.utc)
+        if tid not in first or when < first[tid]:
+            first[tid] = when
+    return first
+
+
+def _answered_me(msg: dict, mine: dict[str, datetime.datetime]) -> bool:
+    """True when this inbound message is a reply to something you sent."""
+    import email.utils
+    started = mine.get(msg.get("threadId") or "")
+    if started is None:
+        return False
+    try:
+        when = email.utils.parsedate_to_datetime(msg.get("date", ""))
+    except (TypeError, ValueError):
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=datetime.timezone.utc)
+    return when > started
+
+
 def _match_row(rows: list[dict], msg: dict) -> dict | None:
     """The single row this message is about, or None if unclear."""
     haystack = f"{msg['subject']} {msg.get('snippet', '')}".lower()
@@ -95,6 +143,11 @@ def scan(days_back: int = 460, dry_run: bool = False,
                                             max_results=max_results)
     print(f"Found {len(messages)} candidate message(s).\n")
 
+    # Which threads you wrote into, and when. Network=Yes is only granted to a
+    # reply that landed after something you sent in the same thread.
+    mine = _my_thread_times(days_back)
+    print(f"You wrote into {len(mine)} thread(s) in that window.\n")
+
     for msg in messages:
         if ME_RE.search(msg.get("from", "")):
             continue
@@ -103,11 +156,14 @@ def scan(days_back: int = 460, dry_run: bool = False,
             continue
         rn = row["row_number"]
 
-        # A person writing from the company's own domain is a real connection,
-        # whatever the message says.
+        # Not every human who writes to you is someone you talked to. A
+        # recruiter's rejection is written by a person on the company's own
+        # domain, and marking that as networking made the column meaningless.
+        # The test is whether they answered something you sent.
         if (not interview_signals.is_automated(msg.get("from", ""), msg.get("subject", ""))
-                and company_in_sender(row["Company"], msg.get("from", ""))):
-            network_ev.setdefault(rn, f"reply from {msg['from'][:45]}")
+                and company_in_sender(row["Company"], msg.get("from", ""))
+                and _answered_me(msg, mine)):
+            network_ev.setdefault(rn, f"replied to you — {msg['from'][:45]}")
 
         ev = interview_signals.invite_evidence(msg)
         if ev:
@@ -117,7 +173,8 @@ def scan(days_back: int = 460, dry_run: bool = False,
             # invite from nasdaq@myworkday.com — nobody there ever wrote to
             # you. Only a human on the company's own domain counts.
             if (not interview_signals.is_automated(msg.get("from", ""), msg.get("subject", ""))
-                    and company_in_sender(row["Company"], msg.get("from", ""))):
+                    and company_in_sender(row["Company"], msg.get("from", ""))
+                    and _answered_me(msg, mine)):
                 network_ev.setdefault(rn, f"interview invite from {msg['from'][:35]}")
 
     # --- 1b. Your own thank-you notes --------------------------------------

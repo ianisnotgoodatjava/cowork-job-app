@@ -28,9 +28,35 @@ _STOP = {"analyst", "associate", "senior", "junior", "the", "and", "for", "at",
          "of", "a", "an", "to", "in", "with", "new", "york", "ny", "i", "ii"}
 
 
+# Company names arrive truncated from the import — "Graham Capital
+# Management, L" is "…, LLC" cut short. That orphan fragment is not a
+# recognised suffix, so the name cores to "grahamcapitalmanagementl" while the
+# untruncated row cores to "graham", and the two never compare as the same
+# company.
+_TRUNCATED_SUFFIX_RE = re.compile(r",\s*[A-Za-z]{1,3}\.?\s*$")
+
+
 def _company_key(row: dict) -> str:
-    return _core(row.get("Company", "")).replace(" ", "") or \
-        normalize(row.get("Company", "")).replace(" ", "")
+    name = _TRUNCATED_SUFFIX_RE.sub("", (row.get("Company") or "").strip())
+    return _core(name).replace(" ", "") or normalize(name).replace(" ", "")
+
+
+# Trailing requisition noise. The same U.S. Bank application is on the sheet
+# three times as "Investment Portfolio Analyst", "... Job ID# 2025" and
+# "... Job ID#" — identical roles that compared as different titles because
+# the ATS reference was captured inconsistently.
+_REQ_TAIL_RE = re.compile(
+    r"\s*[-–(,]?\s*(job\s*id\s*#?|req(uisition)?\.?\s*(id|no|number)?\s*#?|"
+    r"requisition|posting\s*id)\b[\s#:.-]*[\w-]*\)?\s*$", re.I)
+
+
+def strip_req(title: str) -> str:
+    """Drops a trailing job-ID / requisition fragment from a job title."""
+    previous, out = None, (title or "").strip()
+    while out != previous:
+        previous = out
+        out = _REQ_TAIL_RE.sub("", out).strip(" -–—,(#:")
+    return out
 
 
 def _title_tokens(title: str) -> set[str]:
@@ -47,7 +73,7 @@ def _role_match(a: str, b: str) -> str:
     separate applications into one. So overlap only ever reports a *fuzzy*
     match for you to look at; deletion needs an exact or prefix match.
     """
-    na, nb = normalize(a).strip(), normalize(b).strip()
+    na, nb = normalize(strip_req(a)).strip(), normalize(strip_req(b)).strip()
     if not na or not nb:
         return ""
     if na == nb:
@@ -82,10 +108,9 @@ def _is_import(row: dict) -> bool:
 
 def _identical(a: dict, b: dict) -> bool:
     """Same company and the same title, word for word."""
-    return (_company_key(a) == _company_key(b)
-            and normalize(a.get("Position", "")).strip()
-            == normalize(b.get("Position", "")).strip()
-            and normalize(a.get("Position", "")).strip() != "")
+    pa = normalize(strip_req(a.get("Position", ""))).strip()
+    pb = normalize(strip_req(b.get("Position", ""))).strip()
+    return _company_key(a) == _company_key(b) and pa == pb and pa != ""
 
 
 def find(rows: list[dict], max_day_gap: int = 21) -> list[tuple[dict, dict, str]]:
@@ -160,10 +185,16 @@ def _richer(a: dict, b: dict) -> tuple[dict, dict]:
     if ra != rb:
         return (a, b) if ra > rb else (b, a)
 
+    # A title with requisition junk fused onto it is longer but worse:
+    # "Business Development Analystrequisition number 75528" beat the clean
+    # "Business Development Analyst" purely on length.
+    pa, pb = a.get("Position", ""), b.get("Position", "")
+    a_clean, b_clean = strip_req(pa) == pa.strip(), strip_req(pb) == pb.strip()
+    if a_clean != b_clean:
+        return (a, b) if a_clean else (b, a)
+
     # Then whichever names the role more specifically.
-    a_len = len(normalize(a.get("Position", "")))
-    b_len = len(normalize(b.get("Position", "")))
-    return (a, b) if a_len >= b_len else (b, a)
+    return (a, b) if len(normalize(pa)) >= len(normalize(pb)) else (b, a)
 
 
 def run(dry_run: bool = True, max_day_gap: int = 21) -> None:

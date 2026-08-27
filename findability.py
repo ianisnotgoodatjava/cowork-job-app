@@ -66,10 +66,14 @@ def _domain_matches(slug: str, domain: str) -> bool:
     other with enough characters left that the overlap cannot be an
     accident.
     """
-    if not slug or _is_vendor_domain(domain):
+    # A slug this short carries no identity. "U.S. Bank" reduces to "us"
+    # once "Bank" is stripped as a descriptor, and "us" matches the label of
+    # us.mufg.jp exactly — a different bank on another continent. Anything
+    # under three characters is thrown away rather than matched.
+    if not slug or len(slug) < 3 or _is_vendor_domain(domain):
         return False
     label = _domain_label(domain)
-    if not label:
+    if not label or len(label) < 3:
         return False
     if slug == label:
         return True
@@ -140,6 +144,108 @@ def rank(days_back: int | None = None) -> dict[str, list]:
             or datetime.date.min,
             reverse=True)
     return buckets
+
+
+def _draft_index() -> tuple[set[str], list[str]]:
+    """(recipient domain labels, draft subjects) for every existing draft."""
+    import time
+
+    from googleapiclient.discovery import build
+    from google_auth import get_credentials
+
+    svc = build("gmail", "v1", credentials=get_credentials())
+
+    def call(fn):
+        for _ in range(6):
+            try:
+                return fn()
+            except Exception as exc:
+                if "403" in str(exc) or "rateLimit" in str(exc):
+                    time.sleep(15)
+                    continue
+                raise
+        raise RuntimeError("Gmail rate limit")
+
+    domains: set[str] = set()
+    subjects: list[str] = []
+    token = None
+    while True:
+        page = call(lambda: svc.users().drafts().list(
+            userId="me", maxResults=100, pageToken=token).execute())
+        for draft in page.get("drafts", []):
+            full = call(lambda: svc.users().drafts().get(
+                userId="me", id=draft["id"], format="metadata").execute())
+            head = {h["name"]: h["value"]
+                    for h in full["message"]["payload"]["headers"]}
+            to = (head.get("To") or "").lower()
+            if "@" in to:
+                domains.add(_domain_label(to.split("@")[-1].strip("> ")))
+            subjects.append((head.get("Subject") or "").lower())
+        token = page.get("nextPageToken")
+        if not token:
+            break
+    return domains, subjects
+
+
+def coverage(days_back: int | None = None) -> tuple[list, list]:
+    """Splits open applications into (has a draft, has none).
+
+    Matched two ways because neither is sufficient alone. Domain matching
+    misses a shortened name — the slug for "Fitch Group" is "fitch", which
+    never matches fitchratings.com under the strict prefix rule and reported
+    a real Harold Chen draft as missing. The subject line carries the
+    company verbatim ("... at Fitch Ratings"), so it catches what the domain
+    cannot.
+    """
+    import datetime
+
+    patterns = _load_patterns()
+    rows = [r for r in sheets.list_rows()
+            if status_mod.is_open(r.get("Status", ""))]
+    if days_back:
+        cutoff = datetime.date.today() - datetime.timedelta(days=days_back)
+        rows = [r for r in rows
+                if (parse_date(r.get("Applied Draes", "")) or datetime.date.min)
+                >= cutoff]
+
+    domains, subjects = _draft_index()
+    have, missing = [], []
+    for row in rows:
+        company = (row.get("Company") or "").strip()
+        slug = _slug(company)
+        hit = any(_domain_matches(slug, d) or slug == d for d in domains)
+        if not hit and len(company) >= 4:
+            hit = any(company.lower() in s for s in subjects)
+        (have if hit else missing).append((row, classify(row, patterns)[0]))
+    return have, missing
+
+
+def run_coverage(days_back: int | None = None) -> None:
+    have, missing = coverage(days_back)
+    total = len(have) + len(missing)
+    window = f" from the last {days_back} days" if days_back else ""
+    print(f"{total} open application(s){window}: "
+          f"{len(have)} with a draft, {len(missing)} without\n")
+    if not missing:
+        print("Every open application has a draft.")
+        return
+
+    by_tier: dict[str, list] = {}
+    for row, tier in missing:
+        by_tier.setdefault(tier, []).append(row)
+    for tier in ORDER:
+        items = by_tier.get(tier) or []
+        if not items:
+            continue
+        print(f"### no draft — {tier}  ({len(items)})")
+        for row in items:
+            print(f"  row {row['row_number']:4d} | {row['Company'][:30]:30s} | "
+                  f"{row['Position'][:34]}")
+        print()
+    cheap = sum(len(by_tier.get(t) or []) for t in ("PUBLISHES", "KNOWN_ADDR"))
+    print(f"{cheap} of the {len(missing)} gaps have a verifiable contact path.")
+    print("  ./venv/bin/python cli.py auto-draft --limit "
+          f"{max(cheap, 1)} --write-drafts")
 
 
 def run(days_back: int | None = None, show: int = 12) -> None:

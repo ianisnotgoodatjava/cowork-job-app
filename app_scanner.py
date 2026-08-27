@@ -182,6 +182,14 @@ def _looks_like_person(name: str) -> bool:
     return bool(_INVERTED_NAME_RE.match(name) or _PLAIN_NAME_RE.match(name))
 
 
+# "<Employer> @ <ATS platform>" in a sender's display name.
+_SENDER_PLATFORM_TAIL_RE = re.compile(
+    r"\s*@\s*(icims|workday|myworkday|greenhouse|lever|taleo|ukg|ukgready|"
+    r"successfactors|smartrecruiters|jobvite|rippling|ashby|workable)\s*$",
+    re.I,
+)
+
+
 def _company_from_sender(from_header: str) -> str:
     """Company taken from the sender, when the subject gives nothing.
 
@@ -191,6 +199,12 @@ def _company_from_sender(from_header: str) -> str:
     """
     header = (from_header or "").strip()
     display = header.split("<")[0].strip().strip('"').strip()
+    # iCIMS sends as "Rockefeller Capital Management  @ icims" — employer
+    # then platform. This has to come off before anything else: the
+    # HR-system rule below removes "icims" on its own but leaves a dangling
+    # "@", and the final guard rejects any name containing one. The whole
+    # application was dropped on that stray character.
+    display = _SENDER_PLATFORM_TAIL_RE.sub("", display).strip()
 
     if display and not _SENDER_VENDOR_RE.match(display):
         # A recruiter often signs with their employer in brackets.

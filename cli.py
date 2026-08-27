@@ -221,7 +221,10 @@ def cmd_targets(args):
 
 def cmd_findability(args):
     import findability
-    findability.run(days_back=args.days, show=args.show)
+    if args.coverage:
+        findability.run_coverage(days_back=args.days)
+    else:
+        findability.run(days_back=args.days, show=args.show)
 
 
 def cmd_who_replies(args):
@@ -519,6 +522,8 @@ def main():
     p.add_argument("--days", type=int, default=None,
                    help="Only applications from the last N days (default: all open)")
     p.add_argument("--show", type=int, default=12, help="Rows to list per tier")
+    p.add_argument("--coverage", action="store_true",
+                   help="Which open applications have no draft yet")
     p.set_defaults(func=cmd_findability)
 
     p = sub.add_parser("who-replies", help="Reply and bounce rates from your own outreach history — who is actually worth emailing")

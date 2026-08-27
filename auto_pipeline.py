@@ -157,6 +157,15 @@ def run(days_back: int = 30, dry_run: bool = False) -> None:
               "contact\n   and finishes the email instead of leaving "
               "[[WHO]]/[[HOOK]] placeholders)")
 
+    print("\n[5c/6] Applications still without a draft")
+    # The invariant is one draft per application, each addressed to a real
+    # person. Those two pull against each other whenever nobody can be found,
+    # and the honest resolution is to leave the gap visible rather than close
+    # it with an unaddressed draft. This prints what is still missing so the
+    # number cannot quietly drift.
+    import findability
+    _step(findability.run_coverage, days_back=max(days_back, 60))
+
     print("\n[6/6] Ready for outreach (no contact saved yet)")
     ready = _ready_for_outreach(days_back)
     if not ready:

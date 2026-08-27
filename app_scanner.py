@@ -8,10 +8,10 @@ a wrong row is worse than a missing one, since you'd have to find and fix it.
 import re
 from email.utils import parsedate_to_datetime
 
-import email_drafter
 import gmail_client
 import linkedin_helper
 import sheets
+import status as status_mod
 from config import HEADERS
 from company_match import normalize
 from link_finder import CONFIRMATION_PHRASES
@@ -91,6 +91,20 @@ _HR_SYSTEM_RE = re.compile(
 )
 
 
+# What a stripped name should have been. Removing the HR suffix is not always
+# enough: "MUFGUBHR" loses the "HR" and leaves "MUFGUB", because "UB" is Union
+# Bank — part of the old MUFG Union Bank name, not platform noise. Keyed on the
+# lowercased result of the strip.
+_CANONICAL = {
+    "mufgub": "MUFG",
+    "mufg union bank": "MUFG",
+}
+
+
+def _canonicalise(name: str) -> str:
+    return _CANONICAL.get(name.strip().lower(), name)
+
+
 def _strip_hr_system(name: str) -> str:
     """Removes HR-platform noise glued to a company name.
 
@@ -100,7 +114,7 @@ def _strip_hr_system(name: str) -> str:
     """
     stripped = _clean(_HR_SYSTEM_RE.sub(" ", name).replace("_", " "))
     stripped = re.sub(r"\s{2,}", " ", stripped).strip()
-    return stripped if len(stripped) >= 3 else ""
+    return _canonicalise(stripped) if len(stripped) >= 3 else ""
 
 # Display names that are the vendor, not the employer.
 _SENDER_VENDOR_RE = re.compile(
@@ -108,6 +122,9 @@ _SENDER_VENDOR_RE = re.compile(
     r"nexxt|adzuna|jobtarget|icims|greenhouse|lever|taleo|smartrecruiters|"
     r"jobvite|brightmove|trinet|adp|paylocity|paycom|clearcompany|insperity|"
     r"jazzhr|workable|breezy|recruitee|hirebridge|ultipro|ceridian|dayforce|"
+    # saashr.com is the UKG Ready host. It reached the sheet as the
+    # employer "saashr" for a SIFMA application.
+    r"saashr|kronos|ukgready|myworkdayjobs|"
     r"rippling|applytojob|applyresponse|donotreply|apply|recruiting ny|"
     # Job boards and aggregators are not employers. "Searchfunder" was logged
     # as a company you applied to.
@@ -402,7 +419,7 @@ def scan(days_back: int = 730, dry_run: bool = False,
             "Company": v["company"],
             "Position": v["role"],
             "Applied Draes": v["date"],
-            "Status": "Applied",
+            "Status": status_mod.display(status_mod.APPLIED),
             "Notes": "Auto-added from Gmail confirmation email",
         }
         values.append([row.get(h, "") for h in HEADERS])
@@ -435,14 +452,17 @@ def scan(days_back: int = 730, dry_run: bool = False,
         url = linkedin_helper.people_search_url(v["company"])
         print(f"  {v['company']:35s} {url}")
 
-    # The reach-out email itself, fully written and sitting in Drafts —
-    # everything but the recipient, which is the one part that genuinely
-    # needs a human (or me, live) picking the right person from the link
-    # above. generate_outreach() is the same retrieval-grounded generator
-    # used everywhere else, with the cross-company contamination guard.
-    print("\nDraft reach-out email prepared for each new company (fill in the recipient before sending):")
-    for v in sorted(new_rows.values(), key=lambda x: x["date"]):
-        draft_row = {"Company": v["company"], "Position": v["role"]}
-        subject, body = email_drafter.generate_outreach(draft_row)
-        draft_id = gmail_client.create_draft("", subject, body)
-        print(f"  {v['company']:35s} draft {draft_id} — \"{subject}\"")
+    # No draft is written here on purpose. This used to create one per new
+    # application with an empty To: field, on the theory that a written email
+    # waiting in Drafts was worth more than nothing. It was not — they piled
+    # up unaddressed, indistinguishable from real drafts, and a reach-out with
+    # no recipient is not a reach-out. The standing rule is that every draft
+    # has a real person on it.
+    #
+    # Finding that person needs a live web search, which plain Python against
+    # Gmail and Sheets cannot do. `cli.py auto-draft` (auto_draft.py) is the
+    # piece that can: it researches a real mid-level contact and writes the
+    # email in one Claude API call. It needs ANTHROPIC_API_KEY set.
+    print("\nTo research a contact and write the email for these:")
+    print("  ./venv/bin/python cli.py auto-draft --limit "
+          f"{len(new_rows)} --write-drafts")

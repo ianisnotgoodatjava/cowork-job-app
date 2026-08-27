@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import sheets
+import status as status_mod
 import gmail_client
 import linkedin_helper
 import rejection_scanner
@@ -87,7 +88,7 @@ def cmd_log_application(args):
         "Required Skills & Experience": requirements,
         "location": location,
         "Job Link": link,
-        "Status": "applied",
+        "Status": status_mod.display(status_mod.APPLIED),
     })
     print(f"Logged to row {row}.")
 
@@ -174,6 +175,53 @@ def cmd_prep(args):
 def cmd_backfill_job_descriptions(args):
     import jd_backfill
     jd_backfill.run(dry_run=args.dry_run, limit=args.limit, days_back=args.days)
+
+
+def cmd_find_jobs(args):
+    import job_finder
+    areas = [args.area] if args.area else None
+    job_finder.run(areas=areas, per_area=args.per_area,
+                   skip_tracked_companies=args.new_companies_only)
+
+
+def cmd_watch(args):
+    import watch
+    watch.run(days_back=args.days, limit=args.limit, min_fit=args.min_fit,
+              dry_run=args.dry_run, draft=not args.no_draft)
+
+
+def cmd_addresses(args):
+    import address_book
+    address_book.run(days_back=args.days, refresh=not args.cached,
+                     address=args.check or "")
+
+
+def cmd_auto_draft(args):
+    import auto_draft
+    auto_draft.run(limit=args.limit, min_fit=args.min_fit,
+                   dry_run=not args.write_drafts,
+                   create_drafts=args.write_drafts)
+
+
+def cmd_batch_outreach(args):
+    import batch_outreach
+    batch_outreach.run(limit=args.limit, min_fit=args.min_fit)
+
+
+def cmd_backfill_locations(args):
+    import location_backfill
+    location_backfill.run(dry_run=args.dry_run, days_back=args.days,
+                          use_email=not args.no_email)
+
+
+def cmd_targets(args):
+    import targets
+    targets.run(days_back=args.days)
+
+
+def cmd_findability(args):
+    import findability
+    findability.run(days_back=args.days, show=args.show)
 
 
 def cmd_who_replies(args):
@@ -354,6 +402,16 @@ def _today_mdy() -> str:
     return f"{today.month}/{today.day}/{today.year}"
 
 
+def cmd_network_audit(args):
+    import network_audit
+    network_audit.run(days_back=args.days, dry_run=args.dry_run)
+
+
+def cmd_clean_sheet(args):
+    import sheet_clean
+    sheet_clean.run(dry_run=args.dry_run)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Job application tracker CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -416,6 +474,53 @@ def main():
     p.add_argument("--days", type=int, default=460, help="How far back to read application emails")
     p.set_defaults(func=cmd_backfill_job_descriptions)
 
+    p = sub.add_parser("find-jobs", help="Search online for live postings that fit your background and are not already on the sheet")
+    p.add_argument("--area", help="Search one specific area instead of all six")
+    p.add_argument("--per-area", type=int, default=4)
+    p.add_argument("--new-companies-only", action="store_true", help="Skip companies you have already applied to at all")
+    p.set_defaults(func=cmd_find_jobs)
+
+    p = sub.add_parser("watch", help="One pass of the every-few-hours cycle: new applications in, posting link + drafted outreach out")
+    p.add_argument("--days", type=int, default=14)
+    p.add_argument("--limit", type=int, default=3, help="Max applications to research this pass")
+    p.add_argument("--min-fit", type=float, default=2.0)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--no-draft", action="store_true", help="Skip the paid research/drafting step")
+    p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("addresses", help="Learn each company's email format from what actually got delivered; check an address before using it")
+    p.add_argument("--days", type=int, default=520)
+    p.add_argument("--cached", action="store_true", help="Use the saved cache instead of re-reading Gmail")
+    p.add_argument("--check", help="Check one address against that domain's history")
+    p.set_defaults(func=cmd_addresses)
+
+    p = sub.add_parser("auto-draft", help="Research a real contact and write a finished outreach email per application, via the Claude API (costs money)")
+    p.add_argument("--limit", type=int, default=5)
+    p.add_argument("--min-fit", type=float, default=2.0)
+    p.add_argument("--write-drafts", action="store_true", help="Also create the Gmail drafts (still unsent)")
+    p.set_defaults(func=cmd_auto_draft)
+
+    p = sub.add_parser("batch-outreach", help="Prepare an outreach draft for each uncontacted application, ranked by fit; you fill in the hook")
+    p.add_argument("--limit", type=int, default=25)
+    p.add_argument("--min-fit", type=float, default=1.0)
+    p.set_defaults(func=cmd_batch_outreach)
+
+    p = sub.add_parser("backfill-locations", help="Fill the empty location column from job titles and confirmation emails")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--days", type=int, default=520)
+    p.add_argument("--no-email", action="store_true", help="Only use the job title, skip reading email")
+    p.set_defaults(func=cmd_backfill_locations)
+
+    p = sub.add_parser("targets", help="Which open applications have nobody contacted yet — ranked so outreach goes where there is no coverage")
+    p.add_argument("--days", type=int, default=520)
+    p.set_defaults(func=cmd_targets)
+
+    p = sub.add_parser("findability", help="Rank open applications by how cheaply a real contact can be found — do the verifiable ones first")
+    p.add_argument("--days", type=int, default=None,
+                   help="Only applications from the last N days (default: all open)")
+    p.add_argument("--show", type=int, default=12, help="Rows to list per tier")
+    p.set_defaults(func=cmd_findability)
+
     p = sub.add_parser("who-replies", help="Reply and bounce rates from your own outreach history — who is actually worth emailing")
     p.add_argument("--days", type=int, default=520)
     p.add_argument("--limit", type=int, default=600)
@@ -464,6 +569,15 @@ def main():
     p.add_argument("--days", type=int, default=30, help="Look back this many days (default 30)")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_auto)
+
+    p = sub.add_parser("network-audit", help="Re-check the Network column: only people you actually exchanged mail with stay Yes")
+    p.add_argument("--days", type=int, default=460)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_network_audit)
+
+    p = sub.add_parser("clean-sheet", help="Normalize Status spelling, fill blank Network cells, trim stray whitespace")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_clean_sheet)
 
     p = sub.add_parser("train-rejection-model", help="Retrain the learned rejection classifier from your mail")
     p.add_argument("--days", type=int, default=500)

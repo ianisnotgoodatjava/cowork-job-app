@@ -31,7 +31,14 @@ def run(dry_run: bool = True) -> None:
         rn, patch = row["row_number"], {}
 
         raw = (row.get("Status") or "").strip()
-        if raw:
+        if not raw and (row.get("Applied Draes") or "").strip():
+            # A row exists because you applied, so a blank Status is a gap in
+            # the record rather than a state. It matters: `status.is_open`
+            # reads blank as not-open, so the row silently disappears from
+            # follow-ups, fit ranking and every outreach command.
+            patch["Status"] = status_mod.display(status_mod.APPLIED)
+            status_fix.append((rn, "(blank)", patch["Status"]))
+        elif raw:
             shown = status_mod.display(raw)
             if status_mod.normalize(raw) not in status_mod.CANONICAL:
                 unknown.append((rn, raw))

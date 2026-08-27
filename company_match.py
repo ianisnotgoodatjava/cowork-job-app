@@ -127,9 +127,33 @@ def company_in_sender(company: str, from_header: str) -> bool:
         return False
     domain = from_header.rsplit("@", 1)[1].lower().strip(" >")
     if _is_vendor_domain(domain):
-        return False
+        # An ATS tenant puts the employer in the local part instead:
+        # usbank@myworkday.com, conning@myworkday.com, baird@myworkday.com.
+        # Returning False here meant three U.S. Bank rejections — for roles
+        # applied to by requisition number, so the subject never spelled the
+        # company either — matched no row at all, and outreach was drafted to
+        # three desks that had already declined.
+        local = re.sub(r"[^a-z0-9]", "", from_header.rsplit("@", 1)[0].lower())
+        if len(local) < 4:
+            return False
+        return local in _sender_names(company)
     label = _domain_label(from_header)
     if not label or len(label) < 4 or label in _VENDOR_DOMAINS:
         return False
-    candidates = {normalize(company).replace(" ", ""), _core(company).replace(" ", "")}
-    return label in {c for c in candidates if len(c) >= 4}
+    return label in _sender_names(company)
+
+
+def _sender_names(company: str) -> set[str]:
+    """The forms a sender's domain label or ATS local-part may take.
+
+    The whole name with only punctuation removed has to be in here. Both
+    normalize() and _core() strip "Group" as a legal suffix, so "CME Group"
+    reduced to "cme" — three characters, below the length floor, leaving
+    nothing at all to match cmegroup.com with.
+    """
+    names = {
+        re.sub(r"[^a-z0-9]", "", (company or "").lower()),
+        normalize(company).replace(" ", ""),
+        _core(company).replace(" ", ""),
+    }
+    return {n for n in names if len(n) >= 4}

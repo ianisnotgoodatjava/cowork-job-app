@@ -221,8 +221,19 @@ def _company_from_sender(from_header: str) -> str:
         # Then the run-together forms the word-boundary rule cannot see. When
         # the name is nothing but HR-system noise ("MyHR") it is cleared, so
         # the domain below decides instead of "MyHR" becoming an employer.
-        if _HR_SYSTEM_RE.search(name):
-            name = _strip_hr_system(name)
+        # Twice, because one pass only strips what is trailing at the time.
+        # "Nomura HR SuccessFactors" loses "SuccessFactors" first, which is
+        # what the $-anchored branch was looking at; only then is "HR" at the
+        # end for it to remove. A single pass left the employer as "Nomura
+        # HR", which matches no sheet row and reads as a company that does
+        # not exist.
+        for _ in range(2):
+            if not _HR_SYSTEM_RE.search(name):
+                break
+            stripped = _strip_hr_system(name)
+            if stripped == name:
+                break
+            name = stripped
 
         # Nobody signs a personal email "Neuberger Berman Workday", so a
         # stripped suffix proves this is an employer. Without that proof, a

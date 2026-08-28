@@ -113,7 +113,9 @@ def cmd_list(args):
 
 
 def cmd_update_status(args):
-    sheets.update_row(args.row, {"Status": args.status})
+    # Through display() so a hand-typed "rejected" is stored the same way
+    # every scanner stores it.
+    sheets.update_row(args.row, {"Status": status_mod.display(args.status)})
     print(f"Row {args.row} status set to '{args.status}'.")
 
 

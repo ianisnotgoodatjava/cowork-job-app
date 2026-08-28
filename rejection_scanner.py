@@ -355,7 +355,12 @@ def scan(days_back: int = 180, dry_run: bool = False, since_date=None,
                 note += f" [{evidence}]"
             existing_notes = row.get("Notes", "")
             new_notes = f"{existing_notes}\n{note}".strip()
-            sheets.update_row(row["row_number"], {"Status": new_status, "Notes": new_notes})
+            # display(), not the bare canonical: the sheet keeps one spelling
+            # per status, and writing "rejected" here beside "Rejected" from
+            # every other writer is what made the column inconsistent.
+            sheets.update_row(row["row_number"],
+                              {"Status": status_mod.display(new_status),
+                               "Notes": new_notes})
             claims[msg["id"]] = row["row_number"]
             applied_rows.remove(row)  # don't match this row again this run
             updated.append((row, msg, new_status, evidence))

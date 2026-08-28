@@ -77,9 +77,39 @@ _ROLE_TRAILER_RE = re.compile(
 )
 
 
+# Junk that survives the capture and has to come off the front.
+_ROLE_LEADER_RE = re.compile(
+    r"^[\s*\-–—•>|]+"                              # "* Analyst"
+    r"|^(?:[Rr]-?\d{3,}|\d{5,})\s*[-–—:]?\s*"     # "R-29010 - ", "r206 "
+    r"|^(?:role|position|title|job)\s*:\s*",        # "role: Analyst"
+    re.I,
+)
+
+# Where the title stops and the email's prose starts. Cutting at the noun that
+# introduces the sentence is what separates "Revenue Economics Analyst" from
+# "Revenue Economics Analyst position here" — the capture regexes only bound
+# the match loosely, so this does the real trimming.
+_ROLE_PROSE_RE = re.compile(
+    r"\s+(?:position|role|opening|opportunity|job|vacancy|req(?:uisition)?)\b.*$"
+    r"|\.\s+\S.*$"                                 # first sentence boundary
+    r"|\s+(?:we|the|this|that|thank|thanks|your|you|it|our|if|please|as|at|"
+    r"in|for|and|to|is|was|has|have)\s*$"            # truncated next sentence
+    # Words that never appear inside a job title, so anything from here on is
+    # the email talking: "... Category Analyst We have considered ...".
+    r"|\s+(?:we|thank|thanks|please|unfortunately|congratulations|dear|"
+    r"hello|hi|regards)\b.*$",
+    re.I | re.S,
+)
+
+
 def tidy_role(role: str) -> str:
     """Trims a captured job title down to just the title."""
     role = re.sub(r"\s+", " ", role or "").strip()
+    role = _ROLE_LEADER_RE.sub("", role).strip()
+    previous = None
+    while role != previous:
+        previous = role
+        role = _ROLE_PROSE_RE.sub("", role).strip(" -–—,:;.\"'")
     previous = None
     while role != previous:
         previous = role
@@ -104,6 +134,11 @@ def extract_role(subject: str, body: str) -> str:
             # Trim a trailing requisition id.
             role = re.sub(r"\s*[-–(]\s*(req|requisition|job|id)?\s*[\w-]*\d[\w-]*\)?\s*$",
                           "", role, flags=re.I).strip(" -–—,")
+            # A capture that trims down to the placeholder itself is no
+            # better than what is already in the sheet, so keep looking
+            # rather than returning it and blocking a later, fuller match.
+            if role.lower() == PLACEHOLDER:
+                continue
             if 4 <= len(role) <= 70 and not _BAD_ROLE_RE.match(role) \
                     and _TITLEISH_RE.search(role):
                 return role
@@ -185,7 +220,9 @@ def run(dry_run: bool = True, days_back: int = 520) -> None:
                     sent = parsedate_to_datetime(m["date"]).date()
                 except Exception:
                     sent = None
-                if sent and abs((sent - applied).days) > 3:
+                # Widened from 3 days: an ATS "status update" often lands a
+                # week after the application, and it names the role.
+                if sent and abs((sent - applied).days) > 10:
                     continue
             role = extract_role(m.get("subject", ""), m.get("body", ""))
             if role and role.lower() != PLACEHOLDER:
@@ -195,6 +232,42 @@ def run(dry_run: bool = True, days_back: int = 520) -> None:
             recovered.append((r, best))
             print(f"  row {r['row_number']:3d} {r['Company'][:24]:24s} -> {best[:50]}")
 
+    # --- 3. Second pass: search that company's mail directly ---------------
+    # The broad query above only reads mail containing a confirmation phrase.
+    # Plenty of ATS mail names the role without ever using one, so anything
+    # still unknown gets its own targeted search.
+    done = {r["row_number"] for r, _ in recovered}
+    still = [r for r in orphans if r["row_number"] not in done]
+    print(f"\n=== second pass: searching mail for the remaining "
+          f"{len(still)} company(ies) ===", flush=True)
+
+    for r in still:
+        term = _core(r["Company"]) or r["Company"]
+        if len(term) < 3:
+            continue
+        applied = parse_date(r.get("Applied Draes", ""))
+        try:
+            msgs2 = gmail_client.search_messages(
+                f'newer_than:{days_back}d -in:chats "{term}"',
+                include_body=True, max_results=40)
+        except Exception as exc:
+            print(f"  row {r['row_number']:3d} ! {type(exc).__name__}")
+            continue
+        for m in msgs2:
+            if applied:
+                try:
+                    sent = parsedate_to_datetime(m["date"]).date()
+                except Exception:
+                    sent = None
+                if sent and abs((sent - applied).days) > 10:
+                    continue
+            role = extract_role(m.get("subject", ""), m.get("body", ""))
+            if role and role.lower() != PLACEHOLDER:
+                recovered.append((r, role))
+                print(f"  row {r['row_number']:3d} {r['Company'][:24]:24s} -> "
+                      f"{role[:50]}", flush=True)
+                break
+
     print(f"\n{len(recovered)} title(s) recovered; "
           f"{len(orphans) - len(recovered)} still unknown "
           f"(left as 'Analyst' rather than guessed).")
@@ -203,8 +276,10 @@ def run(dry_run: bool = True, days_back: int = 520) -> None:
         print("\n(dry-run — nothing written)")
         return
 
-    for r, role in recovered:
-        notes = (r.get("Notes", "") + "\nTitle recovered from the confirmation email.").strip()
-        sheets.update_row(r["row_number"], {"Position": role, "Notes": notes})
+    # One batched write instead of one call per row. Notes is not passed:
+    # the sheet was trimmed to A-J and no longer has that column.
+    written = sheets.update_rows(
+        {r["row_number"]: {"Position": role} for r, role in recovered})
     removed = sheets.delete_rows([r["row_number"] for r, _ in dupes])
-    print(f"\nUpdated {len(recovered)} title(s), removed {removed} duplicate row(s).")
+    print(f"\nUpdated {len(recovered)} title(s) ({written} cell(s) in one "
+          f"call), removed {removed} duplicate row(s).")

@@ -305,7 +305,9 @@ def scan(days_back: int = 460, dry_run: bool = False,
     ):
         note = f"Interview detected {today} [{ev}]"
         notes = f"{row.get('Notes', '')}\n{note}".strip()
-        sheets.update_row(row["row_number"], {"Status": new_status, "Notes": notes})
+        sheets.update_row(row["row_number"],
+                          {"Status": status_mod.display(new_status),
+                           "Notes": notes})
     for row, ev in network_updates:
         sheets.update_row(row["row_number"], {"Network": NETWORK_YES})
 

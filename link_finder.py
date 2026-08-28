@@ -17,6 +17,12 @@ CONFIRMATION_PHRASES = [
     "thank you for applying",
     "thank you for your application",
     "application has been received",
+    # SuccessFactors' subject line, which announces the application rather
+    # than thanking you for it: "New Application Received  Fund Financing
+    # Analyst/Associate Global Markets United States (US)". Nothing else in
+    # this list matches that wording, so five Nomura applications were never
+    # even returned by the search.
+    "new application received",
     "your application to",
     "thanks for your interest",
     "application confirmation",

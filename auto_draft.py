@@ -67,9 +67,12 @@ def _key(row: dict) -> str:
 # carries web-search result blocks, and this runs unattended overnight where a
 # parse failure is invisible — a format that degrades to "readable text a human
 # can still use" is worth more here than a strict schema.
-_FIELD_RE = re.compile(r"^===\s*([A-Z_]+)\s*===\s*$", re.M)
+# Digits included: the second contact's fields are CONTACT_NAME_2 and
+# friends, and a [A-Z_]+ class silently swallowed all of them into the
+# first BODY instead of splitting them out.
+_FIELD_RE = re.compile(r"^===\s*([A-Z_0-9]+)\s*===\s*$", re.M)
 
-SYSTEM = """You research a contact and write one cold outreach email for Ian Liu.
+SYSTEM = """You research two contacts and write a cold outreach email to each, for Ian Liu.
 
 WHO IAN IS
 - B.A. Mathematics and Economics, NYU, December 2024. REDACTED.
@@ -114,6 +117,19 @@ is worse than a generic email because they will notice.
 Do not mention that Ian applied to the role, unless the person holds the same
 job title he applied for — with a peer it is the honest reason for writing.
 
+FIND TWO PEOPLE, NOT ONE
+Give two different contacts at the company, each with their own email. One
+reply out of two tries beats one out of one, and a single name is a single
+point of failure — people leave, go on parental leave, or simply never read
+cold mail. Prefer two people on different teams or at different seniorities
+within the mid-level band, so the second is a genuine second shot rather
+than a near-duplicate of the first. Each email must have its own hook: do
+not send the same paragraph to both, because colleagues do compare.
+
+If you can only find one real person, fill the first block and put UNKNOWN
+in CONTACT_NAME_2. One real contact is worth more than a second invented
+one.
+
 OUTPUT — exactly this, nothing else:
 
 === CONTACT_NAME ===
@@ -129,11 +145,23 @@ OUTPUT — exactly this, nothing else:
 board, or UNKNOWN. Must be the posting itself, not a careers landing page and
 not a search results page. Verify it names this role before giving it.>
 === SOURCES ===
-<one URL per line for every factual claim in the email>
+<one URL per line for every factual claim in either email>
 === SUBJECT ===
 <subject line — about them or their work, not about Ian>
 === BODY ===
 <the full email, starting "Dear <first name>," and ending with the sign-off>
+=== CONTACT_NAME_2 ===
+<full name of the second person, or UNKNOWN>
+=== CONTACT_TITLE_2 ===
+<exact job title>
+=== CONTACT_EMAIL_2 ===
+<address, or UNKNOWN>
+=== CONFIDENCE_2 ===
+<one line: how you found the address, and whether it is published or inferred>
+=== SUBJECT_2 ===
+<subject line for the second person>
+=== BODY_2 ===
+<the second email — a different hook, not a reworded copy of the first>
 
 If you cannot find a real named person at this company, put UNKNOWN in
 CONTACT_NAME and leave SUBJECT and BODY empty. Do not invent a person."""
@@ -274,6 +302,21 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         if verdict.startswith("MISMATCH"):
             print(f"    ! {verdict[:96]}")
 
+        addr2 = fields.get("contact_email_2", "").strip()
+        name2 = fields.get("contact_name_2", "").strip()
+        # The second contact is dropped rather than repaired: two names is the
+        # target, but a bad address or a duplicate of the first is worse than
+        # only having one.
+        if name2.upper() == "UNKNOWN" or "@" not in addr2 \
+                or addr2.lower() == addr.lower():
+            name2 = ""
+        else:
+            verdict2 = address_book.check(addr2)
+            fields["_verdict_2"] = verdict2
+            if verdict2.startswith("BOUNCED BEFORE"):
+                print(f"    {addr2} has bounced before — second contact dropped")
+                name2 = ""
+
         path = os.path.join(
             out_dir,
             f"{row['row_number']:03d}_{batch_outreach._slug(row['Company'])}.txt")
@@ -288,6 +331,14 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
                     f"Subject:    {fields.get('subject', '')}\n"
                     f"\nSources:\n{fields.get('sources', '(none given)')}\n"
                     f"\n{'-' * 70}\n{fields.get('body', '')}\n{'-' * 70}\n")
+            if name2:
+                f.write(f"\n\nSECOND CONTACT\n"
+                        f"To:         {addr2}\n"
+                        f"Person:     {name2} — {fields.get('contact_title_2', '')}\n"
+                        f"Confidence: {fields.get('confidence_2', '')}\n"
+                        f"Address:    {fields.get('_verdict_2', '')}\n"
+                        f"Subject:    {fields.get('subject_2', '')}\n"
+                        f"\n{'-' * 70}\n{fields.get('body_2', '')}\n{'-' * 70}\n")
 
         # The posting URL is worth as much as the email: it is what the sheet
         # has almost none of, and every downstream step (prep package,
@@ -302,20 +353,26 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         print(f"    {name} — {fields.get('contact_title', '')}")
         print(f"    {fields.get('contact_email', 'UNKNOWN')}  "
               f"({fields.get('confidence', '')[:60]})")
+        if name2:
+            print(f"    {name2} — {fields.get('contact_title_2', '')}")
+            print(f"    {addr2}  ({fields.get('confidence_2', '')[:60]})")
+        else:
+            print("    (only one contact found — not inventing a second)")
         print(f"    -> {path}")
 
         if create_drafts and not dry_run:
-            body = fields.get("body", "").strip()
-            addr = fields.get("contact_email", "").strip()
-            if body and "@" in addr:
-                import gmail_client
-                gmail_client.create_draft(
-                    to=addr,
-                    subject=fields.get("subject", "").strip(),
-                    body_text=body,
-                    attachments=[os.path.expanduser("~/Ian_Liu_Resume.pdf")],
-                )
-                print("    Gmail draft created (unsent)")
+            import gmail_client
+            resume = os.path.expanduser("~/Ian_Liu_Resume.pdf")
+            pairs = [(addr, fields.get("subject", ""), fields.get("body", ""))]
+            if name2:
+                pairs.append((addr2, fields.get("subject_2", ""),
+                              fields.get("body_2", "")))
+            for to, subject, body in pairs:
+                if body.strip() and "@" in to:
+                    gmail_client.create_draft(
+                        to=to, subject=subject.strip(),
+                        body_text=body.strip(), attachments=[resume])
+                    print(f"    Gmail draft created (unsent) -> {to}")
 
     _mark_done(done)
     print(f"\nDone. Drafts in {out_dir}/")

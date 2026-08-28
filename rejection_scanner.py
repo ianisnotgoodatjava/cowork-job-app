@@ -99,6 +99,11 @@ DECISIVE_PHRASES = [
     "chosen to move forward with another",
     "selected another candidate",
     "we have decided to pursue",
+    # Fanatics' wording, which names the chosen group rather than declining
+    # outright: "we've decided to move forward with candidates whose
+    # experience most closely aligns". The list had "decided to move forward
+    # with other", which this does not contain.
+    "move forward with candidates whose",
     # Huntington's Workday template: "although your qualifications are
     # impressive, at this time we have chosen not to pursue your application
     # further". The list had "pursue other candidates" and "we have decided

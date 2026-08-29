@@ -33,6 +33,7 @@ Read-only, unauthenticated, and nothing here writes to the sheet or Gmail.
 """
 
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -57,14 +58,55 @@ def _get(url: str, params: dict, timeout: int = 25) -> dict:
         return json.load(resp)
 
 
+# Words shared by half the registry, which prove nothing about identity.
+_GENERIC_FIRM_WORDS = {
+    "llc", "inc", "corp", "corporation", "company", "co", "the", "group",
+    "capital", "securities", "partners", "lp", "llp", "holdings", "markets",
+    "financial", "investments", "investment", "management", "advisors",
+    "advisory", "america", "americas", "usa", "us", "international",
+    "global", "and", "of", "limited", "ltd",
+}
+
+
+def _distinctive(name: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", (name or "").lower())
+    return {w for w in words if w not in _GENERIC_FIRM_WORDS and len(w) > 2}
+
+
 def find_firm(name: str, limit: int = 8) -> list[tuple[str, str]]:
-    """(firm_id, firm_name) for firms matching this name."""
+    """(firm_id, firm_name) for firms whose name really matches this one.
+
+    FINRA's search is fuzzy and will happily answer a query it only matched
+    on boilerplate: "Madison-Davis, LLC" came back as "THE ROBINSON-HUMPHREY
+    COMPANY, LLC", which shares nothing but the legal suffix. A result has
+    to share a distinctive word — one that is not "capital", "securities",
+    "LLC" and the rest of the vocabulary half the registry uses.
+    """
     data = _get(_FIRM_URL, {"query": name, "nrows": limit, "start": 0})
+    wanted = _distinctive(name)
     out = []
     for hit in (data.get("hits", {}).get("hits") or []):
         src = hit.get("_source") or {}
-        if src.get("firm_source_id") and src.get("firm_name"):
-            out.append((str(src["firm_source_id"]), src["firm_name"]))
+        firm_name = src.get("firm_name")
+        if not (src.get("firm_source_id") and firm_name):
+            continue
+        # Primary name only. firm_other_names is a graveyard of acquired and
+        # retired DBAs — Robinson-Humphrey carries two dozen, among them
+        # "FIRST MADISON ADVISORS" and "DAVIS SKAGGS INVESTMENT MANAGEMENT",
+        # which is how a staffing agency called Madison-Davis matched a
+        # defunct Atlanta brokerage.
+        # Compared with spaces removed as well, because firms are written
+        # both ways: the sheet says "VanEck", the registry says "VAN ECK
+        # ASSOCIATES CORP.", and word-set overlap alone sees nothing in
+        # common. Squashing is still specific enough that "madisondavis"
+        # does not appear anywhere in "therobinsonhumphreycompany".
+        squashed_q = re.sub(r"[^a-z0-9]", "", (name or "").lower())
+        squashed_f = re.sub(r"[^a-z0-9]", "", firm_name.lower())
+        related = bool(_distinctive(firm_name) & wanted) or (
+            len(squashed_q) >= 5 and squashed_q in squashed_f)
+        if wanted and not related:
+            continue
+        out.append((str(src["firm_source_id"]), firm_name))
     return out
 
 

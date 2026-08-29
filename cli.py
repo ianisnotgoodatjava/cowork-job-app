@@ -189,7 +189,8 @@ def cmd_find_jobs(args):
 def cmd_watch(args):
     import watch
     watch.run(days_back=args.days, limit=args.limit, min_fit=args.min_fit,
-              dry_run=args.dry_run, draft=not args.no_draft)
+              dry_run=args.dry_run, draft=not args.no_draft,
+              deep=getattr(args, "deep", None))
 
 
 def cmd_addresses(args):
@@ -219,6 +220,11 @@ def cmd_backfill_locations(args):
 def cmd_targets(args):
     import targets
     targets.run(days_back=args.days)
+
+
+def cmd_style(args):
+    import style_profile
+    style_profile.run()
 
 
 def cmd_edgar(args):
@@ -510,6 +516,10 @@ def main():
     p.add_argument("--min-fit", type=float, default=2.0)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--no-draft", action="store_true", help="Skip the paid research/drafting step")
+    p.add_argument("--deep", dest="deep", action="store_true", default=None,
+                   help="Force the daily maintenance sweeps (dedupe, positions, locations, network audit, job search)")
+    p.add_argument("--no-deep", dest="deep", action="store_false",
+                   help="Skip the maintenance sweeps even on the late pass")
     p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser("addresses", help="Learn each company's email format from what actually got delivered; check an address before using it")
@@ -538,6 +548,9 @@ def main():
     p = sub.add_parser("targets", help="Which open applications have nobody contacted yet — ranked so outreach goes where there is no coverage")
     p.add_argument("--days", type=int, default=520)
     p.set_defaults(func=cmd_targets)
+
+    p = sub.add_parser("style", help="How you actually write, measured from your sent corpus — what the draft generator is told to match")
+    p.set_defaults(func=cmd_style)
 
     p = sub.add_parser("edgar", help="Investment professionals named in a firm's SEC fund filings — covers asset managers FINRA does not")
     p.add_argument("--company", required=True)

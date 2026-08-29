@@ -28,6 +28,24 @@ from config import ME_RE
 NETWORK_NO = "No"
 
 
+def _person(header: str) -> str:
+    """A readable "Name <address>" from a From/To header.
+
+    Corporate mail sends the display name as "Last, First"; stored that way the
+    column reads like a filing system rather than a person you spoke to.
+    """
+    import email.utils
+    name, addr = email.utils.parseaddr(header or "")
+    name = (name or "").strip().strip('"')
+    if "," in name and name.count(",") == 1:
+        last, first = [part.strip() for part in name.split(",")]
+        if last and first:
+            name = f"{first} {last}"
+    if name and addr:
+        return f"{name} <{addr}>"
+    return addr or name
+
+
 def _networked_companies(days_back: int, verbose: bool = True) -> dict:
     """company-name -> evidence, for every company you genuinely spoke with."""
     mine = reply_scanner._my_thread_times(days_back)
@@ -62,7 +80,10 @@ def _networked_companies(days_back: int, verbose: bool = True) -> dict:
             if company in evidence:
                 continue
             if company_in_sender(company, sender):
-                evidence[company] = f"replied to you — {sender[:60]}"
+                evidence[company] = {
+                    "why": f"replied to you — {sender[:60]}",
+                    "contact": _person(sender),
+                }
 
     # Your own post-conversation notes, which outlive the other side's mail.
     notes = gmail_client.search_messages(
@@ -84,7 +105,10 @@ def _networked_companies(days_back: int, verbose: bool = True) -> dict:
                 continue
             if company_mentioned(company, hay) or company_in_sender(
                     company, msg.get("to", "")):
-                evidence[company] = ev
+                # Their side of the thread may be gone, but your note names
+                # who you wrote to.
+                evidence[company] = {"why": ev,
+                                     "contact": _person(msg.get("to", ""))}
     return evidence
 
 
@@ -99,6 +123,7 @@ def run(days_back: int = 460, dry_run: bool = True) -> None:
 
     rows = sheets.list_rows()
     keep, clear, ask = [], [], []
+    contact_patches: dict[int, dict] = {}
     for row in rows:
         if (row.get("Network") or "").strip().upper() not in ("YES", "TRUE"):
             continue
@@ -106,7 +131,12 @@ def run(days_back: int = 460, dry_run: bool = True) -> None:
         if corrections.is_locked(row, "Network"):
             keep.append((row, "locked by you"))
         elif company in evidence:
-            keep.append((row, evidence[company]))
+            info = evidence[company]
+            keep.append((row, info["why"]))
+            # Record who, not just whether. A Yes with no name still needs the
+            # mailbox searched again before you can follow up.
+            if info.get("contact") and not (row.get("Contact") or "").strip():
+                contact_patches[row["row_number"]] = {"Contact": info["contact"]}
         elif status_mod.normalize(row.get("Status", "")) in SPOKE:
             ask.append(row)
         else:
@@ -131,6 +161,9 @@ def run(days_back: int = 460, dry_run: bool = True) -> None:
     if dry_run:
         print("\n(dry-run — nothing written)")
         return
-    for row in clear:
-        sheets.update_row(row["row_number"], {"Network": NETWORK_NO})
-    print(f"\nCleared {len(clear)} row(s) to No.")
+    patches = {r["row_number"]: {"Network": NETWORK_NO} for r in clear}
+    for rn, patch in contact_patches.items():
+        patches.setdefault(rn, {}).update(patch)
+    sheets.update_rows(patches)
+    print(f"\nCleared {len(clear)} row(s) to No; "
+          f"named the contact on {len(contact_patches)} row(s).")

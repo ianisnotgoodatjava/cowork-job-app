@@ -203,9 +203,16 @@ def draft_for_row(client, row: dict) -> dict:
     # of leaving a stale description in a constant.
     import style_profile
     measured = style_profile.prompt_block()
-    system = SYSTEM.replace("{STYLE_PROFILE}", measured or
-                            "He asks for 15-20 minutes and signs off "
-                            '"Best regards, Ian Liu".')
+    # Two real emails on the nearest topic, appended after the measured
+    # profile. The numbers fix structure; only seeing real ones conveys
+    # rhythm, and prose descriptions of rhythm produced the stilted register
+    # these drafts had.
+    examples = style_profile.exemplar_block(
+        company=company, role=role,
+        area=(row.get("Required Skills & Experience") or "")[:200])
+    system = SYSTEM.replace("{STYLE_PROFILE}", "\n\n".join(
+        part for part in (measured, examples) if part) or
+        'He asks for 15-20 minutes and signs off "Best regards, Ian Liu".')
 
     # Streaming because web search plus a full email routinely runs long
     # enough to trip the non-streaming HTTP timeout.

@@ -24,7 +24,10 @@ import datetime
 import json
 import os
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 
 import job_posting
 import sheets
@@ -32,7 +35,28 @@ import sheets
 # Rows whose link has already been fetched, successfully or not. Without it
 # every scheduled pass would re-fetch hundreds of dead postings.
 STATE_FILE = os.path.join("logs", "enriched.json")
-WORKERS = 8
+WORKERS = 4
+
+# Minimum gap between two requests to the same host. Eight workers pointed at
+# LinkedIn earned a 429 within a minute, and every row in that burst was then
+# recorded as having nothing to offer. Politeness here is what keeps the
+# scheduled run from poisoning its own state file.
+HOST_DELAY = 1.5
+_host_lock = threading.Lock()
+_host_last: dict[str, float] = {}
+
+
+def _wait_turn(url: str) -> None:
+    host = (urlparse(url).hostname or "").lower()
+    while True:
+        with _host_lock:
+            now = time.monotonic()
+            ready = _host_last.get(host, 0.0) + HOST_DELAY
+            if now >= ready:
+                _host_last[host] = now
+                return
+            gap = ready - now
+        time.sleep(gap)
 
 
 def _state() -> dict:
@@ -150,11 +174,25 @@ def _strip_tags(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Failures worth trying again later, as opposed to a posting that is simply
+# gone. Recording a rate-limit as "nothing here" is permanent data loss.
+_TRANSIENT = ("429", "500", "502", "503", "504", "timeout", "timed out",
+              "connection", "temporarily")
+
+
 def enrich_one(url: str) -> dict:
-    """Everything worth storing about one posting, or {} if unreachable."""
+    """Everything worth storing about one posting.
+
+    Returns {} when the posting genuinely offers nothing, or
+    {"_retry": reason} when the fetch failed in a way that may succeed later.
+    """
+    _wait_turn(url)
     try:
         html = job_posting.fetch(url)
-    except Exception:
+    except Exception as exc:
+        text = f"{type(exc).__name__} {exc}".lower()
+        if any(t in text for t in _TRANSIENT):
+            return {"_retry": str(exc)[:80]}
         return {}
     if not html:
         return {}
@@ -216,6 +254,15 @@ def run(limit: int = 200, dry_run: bool = True, retry_failed: bool = False,
                 for c in ("Required Skills & Experience", "Posted", "location")):
             continue
         targets.append((row, url, key))
+
+    # Newest applications first. A posting from last week is still live and
+    # still worth reading; one from a year ago is usually a 404, and the
+    # reach-out it would inform has long since stopped being useful.
+    from date_utils import parse_date
+    import datetime as _dt
+    targets.sort(
+        key=lambda t: parse_date(t[0].get("Applied Draes", "")) or _dt.date.min,
+        reverse=True)
     targets = targets[:limit]
 
     print(f"{len(targets)} row(s) with a link left to read "
@@ -227,10 +274,17 @@ def run(limit: int = 200, dry_run: bool = True, retry_failed: bool = False,
         results = list(pool.map(lambda t: enrich_one(t[1]), targets))
 
     patches, filled = {}, 0
+    retried = 0
     for (row, url, key), data in zip(targets, results):
+        if data.get("_retry"):
+            # Left out of the state file entirely so the next pass tries again.
+            state.pop(key, None)
+            retried += 1
+            continue
         if not data:
             state[key] = "empty"
             continue
+        data = {k: v for k, v in data.items() if not k.startswith("_")}
         # Never overwrite something already in the sheet: a hand-typed
         # location is better than one scraped off an aggregator.
         patch = {c: v for c, v in data.items()
@@ -244,8 +298,9 @@ def run(limit: int = 200, dry_run: bool = True, retry_failed: bool = False,
         print(f"  row {row['row_number']:3d} | {row['Company'][:22]:22s} | {cols}")
 
     print(f"\n{filled} row(s) enriched; "
-          f"{len(targets) - filled} yielded nothing (expired, login-walled, "
-          f"or JavaScript-only).")
+          f"{len(targets) - filled - retried} yielded nothing (expired, "
+          f"login-walled, or JavaScript-only); "
+          f"{retried} deferred (rate-limited or timed out — will retry).")
     if dry_run:
         print("\n(dry-run — nothing written)")
         return

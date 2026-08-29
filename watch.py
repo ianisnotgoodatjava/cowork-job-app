@@ -30,7 +30,13 @@ import sheets
 
 
 def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
-        dry_run: bool = False, draft: bool = True) -> None:
+        dry_run: bool = False, draft: bool = True,
+        deep: bool | None = None) -> None:
+    # The maintenance sweeps re-read the whole mailbox and cost minutes.
+    # Running them on every pass would triple the work for changes that
+    # only accumulate slowly, so they run once a day, on the late pass.
+    if deep is None:
+        deep = datetime.datetime.now().hour >= 22
     step = auto_pipeline._step  # same retry-then-skip behaviour as the nightly run
 
     print("=" * 68)
@@ -40,10 +46,10 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
 
     before = {r["row_number"] for r in sheets.list_rows()}
 
-    print("\n[1/6] New applications from Gmail")
+    print("\n[1/7] New applications from Gmail")
     step(app_scanner.scan, days_back=days_back, dry_run=dry_run)
 
-    print("\n[2/6] Rejections and replies")
+    print("\n[2/7] Rejections and replies")
     step(rejection_scanner.scan, days_back=max(days_back, 90), dry_run=dry_run)
     import reply_scanner
     step(reply_scanner.scan, days_back=max(days_back, 120), dry_run=dry_run,
@@ -56,18 +62,18 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     # These two are why a new row is useful the moment it lands: the posting
     # link, then what the posting actually says. Both are plain HTTP, so they
     # run on every pass whether or not the API key is set.
-    print("\n[3/6] Job posting links")
+    print("\n[3/7] Job posting links")
     import link_finder
     step(link_finder.scan, days_back=max(days_back, 520), dry_run=dry_run)
 
-    print("\n[4/6] Reading postings: qualifications, posting date, location")
+    print("\n[4/7] Reading postings: qualifications, posting date, location")
     if dry_run:
         print("  (dry-run — skipped)")
     else:
         import enrich
         step(enrich.run, limit=60, dry_run=False)
 
-    print("\n[5/6] Researching postings and drafting outreach")
+    print("\n[5/7] Researching postings and drafting outreach")
     if not (os.environ.get("ANTHROPIC_API_KEY")
             or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         print("  skipped — no ANTHROPIC_API_KEY set.\n"
@@ -83,7 +89,32 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         step(auto_draft.run, limit=limit, min_fit=min_fit, dry_run=dry_run,
              create_drafts=not dry_run, new_only=True, write_link=not dry_run)
 
-    print("\n[6/6] Sort and colour")
+    print("\n[6/7] Housekeeping"
+          f"{' (deep — once a day)' if deep else ' (light)'}")
+    if dry_run:
+        print("  (dry-run — skipped)")
+    else:
+        import sheet_clean
+        step(sheet_clean.run, dry_run=False)
+        if deep:
+            # Everything that only pays off over time, and is too slow to run
+            # every few hours.
+            import dedupe as dedupe_mod
+            import fix_positions
+            import location_backfill
+            import network_audit
+            step(dedupe_mod.run, dry_run=False, max_day_gap=30)
+            step(fix_positions.run, dry_run=False, days_back=520)
+            step(location_backfill.run, dry_run=False)
+            step(network_audit.run, days_back=460, dry_run=False)
+            if os.environ.get("ANTHROPIC_API_KEY") or \
+                    os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+                import job_finder
+                step(job_finder.run)
+            else:
+                print("  find-jobs skipped — no ANTHROPIC_API_KEY set")
+
+    print("\n[7/7] Sort and colour")
     if dry_run:
         print("  (dry-run — skipped)")
     else:

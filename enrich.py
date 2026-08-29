@@ -136,6 +136,35 @@ def _posted_from_ld(ld: dict) -> str:
         return raw[:10]
 
 
+# LinkedIn hosts most of the links in this sheet and serves logged-out
+# visitors a page with no JSON-LD at all — but it does print "5 days ago"
+# next to the posting. Deriving the date from that is approximate for
+# "2 months ago" and exact enough for anything in days, which is the range
+# that matters when deciding whether a posting is still worth chasing.
+_AGO_RES = [
+    re.compile(r"posted-time-ago[^>]*>\s*([^<]{2,40}?ago)", re.I),
+    re.compile(r"(?:Posted|Reposted)[^<>]{0,20}?(\d+\s+\w+\s+ago)", re.I),
+    re.compile(r"\b(\d+)\s+(hour|day|week|month)s?\s+ago\b", re.I),
+]
+_UNIT_DAYS = {"hour": 0, "day": 1, "week": 7, "month": 30}
+
+
+def _posted_from_relative(html: str) -> str:
+    """Turns 'Posted 5 days ago' into a date, using today as the anchor."""
+    for rx in _AGO_RES:
+        m = rx.search(html or "")
+        if not m:
+            continue
+        phrase = m.group(0)
+        n = re.search(r"(\d+)\s+(hour|day|week|month)", phrase, re.I)
+        if not n:
+            continue
+        days = int(n.group(1)) * _UNIT_DAYS[n.group(2).lower()]
+        when = datetime.date.today() - datetime.timedelta(days=days)
+        return when.strftime("%-m/%-d/%Y")
+    return ""
+
+
 def _req_from_ld(ld: dict) -> str:
     ident = ld.get("identifier")
     if isinstance(ident, dict):
@@ -200,7 +229,7 @@ def enrich_one(url: str) -> dict:
     ld = job_posting_ld(html)
     out = {
         "location": _location_from_ld(ld),
-        "Posted": _posted_from_ld(ld),
+        "Posted": _posted_from_ld(ld) or _posted_from_relative(html),
         "Job ID": _req_from_ld(ld),
     }
 

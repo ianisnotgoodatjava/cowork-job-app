@@ -221,6 +221,12 @@ def cmd_targets(args):
     targets.run(days_back=args.days)
 
 
+def cmd_people(args):
+    import people_finder
+    people_finder.run(args.company, state=args.state, limit=args.limit,
+                      show=args.show)
+
+
 def cmd_findability(args):
     import findability
     if args.coverage:
@@ -519,6 +525,13 @@ def main():
     p = sub.add_parser("targets", help="Which open applications have nobody contacted yet — ranked so outreach goes where there is no coverage")
     p.add_argument("--days", type=int, default=520)
     p.set_defaults(func=cmd_targets)
+
+    p = sub.add_parser("people", help="Real people currently registered at a broker-dealer, from FINRA BrokerCheck — faster and fresher than LinkedIn")
+    p.add_argument("--company", required=True)
+    p.add_argument("--state", default="NY", help="Branch state filter (default NY; empty for all)")
+    p.add_argument("--limit", type=int, default=200, help="How many registrations to pull")
+    p.add_argument("--show", type=int, default=20)
+    p.set_defaults(func=cmd_people)
 
     p = sub.add_parser("findability", help="Rank open applications by how cheaply a real contact can be found — do the verifiable ones first")
     p.add_argument("--days", type=int, default=None,

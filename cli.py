@@ -221,6 +221,11 @@ def cmd_targets(args):
     targets.run(days_back=args.days)
 
 
+def cmd_sourcing(args):
+    import sourcing
+    sourcing.run(args.company, role=args.role or "", state=args.state)
+
+
 def cmd_people(args):
     import people_finder
     people_finder.run(args.company, state=args.state, limit=args.limit,
@@ -525,6 +530,12 @@ def main():
     p = sub.add_parser("targets", help="Which open applications have nobody contacted yet — ranked so outreach goes where there is no coverage")
     p.add_argument("--days", type=int, default=520)
     p.set_defaults(func=cmd_targets)
+
+    p = sub.add_parser("sourcing", help="How to find a real person at this company — picks the right source per company")
+    p.add_argument("--company", required=True)
+    p.add_argument("--role", default="")
+    p.add_argument("--state", default="NY")
+    p.set_defaults(func=cmd_sourcing)
 
     p = sub.add_parser("people", help="Real people currently registered at a broker-dealer, from FINRA BrokerCheck — faster and fresher than LinkedIn")
     p.add_argument("--company", required=True)

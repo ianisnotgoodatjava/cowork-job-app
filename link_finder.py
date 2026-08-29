@@ -37,9 +37,34 @@ CONFIRMATION_PHRASES = [
 ]
 
 _URL_RE = re.compile(r"https?://[^\s\]\)<>\"']+")
-_SKIP_URL_PATTERNS = ("unsubscribe", "privacy", "terms-of-service", "optout", "preferences", "urldefense.proofpoint.com", "linkedin.com/help")
+_SKIP_URL_PATTERNS = ("unsubscribe", "privacy", "terms-of-service", "optout",
+                      "preferences", "linkedin.com/help",
+                      # CDN assets. A Workday email embeds its logo from
+                      # myworkdaycdn.com/wday/image/..., which matched the
+                      # Workday domain hint and was stored as the posting.
+                      "myworkdaycdn.com", "/wday/image/", "/wday/asset")
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")
-_JOB_URL_HINTS = ("/job", "/jobs", "career", "position", "/apply", "requisition")
+_JOB_URL_HINTS = ("/job", "/jobs", "career", "position", "/apply", "requisition",
+                  "/opening", "/vacancy", "/posting", "/req")
+
+# The ATS a posting is hosted on. Path hints alone missed almost everything:
+# a Workday posting lives at ".../myworkdayjobs.com/en-US/External/details/..."
+# which contains none of the path fragments above, and Workday is the single
+# most common host in this mailbox.
+_ATS_DOMAIN_HINTS = (
+    "myworkdayjobs.com", "myworkdaysite.com", "wd1.myworkday", "wd3.myworkday",
+    "wd5.myworkday", "icims.com", "greenhouse.io", "lever.co", "ashbyhq.com",
+    "taleo.net", "smartrecruiters.com", "successfactors.com", "jobvite.com",
+    "workable.com", "bamboohr.com", "breezy.hr", "recruitee.com",
+    "applytojob.com", "ultipro.com", "dayforcehcm.com", "paylocity.com",
+    "brassring.com", "avature.net", "eightfold.ai", "phenompeople.com",
+    "oraclecloud.com/hcmUI", "silkroad.com", "jazzhr.com", "rippling.com",
+)
+
+# A posting URL almost always carries the requisition id. Preferring one that
+# does is what separates the posting itself from the careers landing page the
+# same email links to.
+_REQ_IN_URL_RE = re.compile(r"(?:/|_|-|=)(?:R-?)?\d{4,}\b|/details/|/job/", re.I)
 
 _TITLE_STOPWORDS = {
     "analyst", "associate", "senior", "junior", "the", "and", "for", "role",
@@ -128,24 +153,89 @@ def _role_conflicts(row: dict, msg: dict) -> bool:
     return not (role_tokens & email_tokens)
 
 
+# Proofpoint rewrites every link in mail that passes through it, and this
+# mailbox gets a lot of it. The wrapper was on the skip list, so those emails
+# looked like they contained no job link at all — the real URL is sitting
+# inside the u= parameter, encoded with "_" for "/" and "-XX" for a literal
+# byte. Unwrapping it is the difference between 38 links and several hundred.
+_PROOFPOINT_V2_RE = re.compile(
+    r"urldefense\.proofpoint\.com/v2/url\?u=([^&\s]+)", re.I)
+_PROOFPOINT_V3_RE = re.compile(
+    r"urldefense(?:\.proofpoint)?\.com/v3/__(.+?)__;", re.I)
+
+
+_SAFELINKS_RE = re.compile(
+    r"safelinks\.protection\.outlook\.com/\?url=([^&\s]+)", re.I)
+
+# LinkedIn appends several hundred bytes of tracking to every job link. The
+# posting is identified entirely by its id, so the rest is noise in a cell you
+# have to read.
+_LINKEDIN_JOB_RE = re.compile(
+    r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", re.I)
+
+
+def _unwrap(url: str) -> str:
+    """Recovers the real destination from a mail-gateway rewrite."""
+    m = _SAFELINKS_RE.search(url)
+    if m:
+        from urllib.parse import unquote
+        url = unquote(m.group(1))
+    m = _PROOFPOINT_V3_RE.search(url)
+    if m:
+        return _canonical(html.unescape(m.group(1)))
+    m = _PROOFPOINT_V2_RE.search(url)
+    if not m:
+        return _canonical(url)
+    raw = m.group(1).replace("_", "/")
+    raw = re.sub(r"-([0-9A-Fa-f]{2})",
+                 lambda h: chr(int(h.group(1), 16)), raw)
+    return _canonical(html.unescape(raw))
+
+
+def _canonical(url: str) -> str:
+    """Strips tracking noise that is not part of the posting's identity."""
+    m = _LINKEDIN_JOB_RE.search(url)
+    if m:
+        return f"https://www.linkedin.com/jobs/view/{m.group(1)}"
+    return url
+
+
 def _best_job_url(body: str) -> str | None:
     """Only returns a URL when it clearly looks like a job posting/apply
     link. Returns None (rather than guessing a random link) otherwise."""
-    urls = [html.unescape(u.rstrip(".,;")) for u in _URL_RE.findall(body)]
+    urls = [_unwrap(html.unescape(u.rstrip(".,;")))
+            for u in _URL_RE.findall(body)]
     urls = [u for u in urls if not any(skip in u.lower() for skip in _SKIP_URL_PATTERNS)]
     urls = [u for u in urls if not u.lower().split("?")[0].endswith(_IMAGE_EXTENSIONS)]
-    hinted = [u for u in urls if any(hint in u.lower() for hint in _JOB_URL_HINTS)]
-    if hinted:
-        return max(hinted, key=len)
-    return None
+    hinted = [u for u in urls
+              if any(h in u.lower() for h in _JOB_URL_HINTS)
+              or any(h in u.lower() for h in _ATS_DOMAIN_HINTS)]
+    if not hinted:
+        return None
+    # Rank rather than taking the longest: the longest URL in an ATS email is
+    # usually the tracking wrapper, not the posting.
+    def score(pair) -> tuple:
+        i, u = pair
+        low = u.lower()
+        return (
+            bool(_REQ_IN_URL_RE.search(u)),
+            any(h in low for h in _ATS_DOMAIN_HINTS),
+            any(h in low for h in _JOB_URL_HINTS),
+            -i,
+        )
+    return max(enumerate(hinted), key=score)[1]
 
 
 def scan(days_back: int = 365, dry_run: bool = False, since_date=None) -> None:
     phrase_query = " OR ".join(f'"{p}"' for p in CONFIRMATION_PHRASES)
-    query = f"in:inbox newer_than:{days_back}d ({phrase_query})"
+    # No "in:inbox": confirmations get archived, and those rows need a link
+    # just as much. max_results was 200, which silently capped the scan at a
+    # fraction of the mail that matched.
+    query = f"newer_than:{days_back}d -in:chats ({phrase_query})"
 
-    print(f"Searching Gmail: {query}\n")
-    messages = gmail_client.search_messages(query, include_body=True, max_results=200)
+    print(f"Searching Gmail: {query[:120]}...\n")
+    messages = gmail_client.search_messages(query, include_body=True,
+                                            max_results=3000)
     print(f"Found {len(messages)} candidate confirmation emails.\n")
 
     target_rows = [r for r in sheets.list_rows() if not r.get("Job Link", "").strip()]
@@ -161,6 +251,7 @@ def scan(days_back: int = 365, dry_run: bool = False, since_date=None) -> None:
     updated = []
     ambiguous = []
     no_link_found = []
+    pending: dict[int, dict] = {}
 
     for msg in messages:
         haystack = f"{msg['subject']} {msg['from']} {msg.get('body', '')}".lower()
@@ -187,9 +278,14 @@ def scan(days_back: int = 365, dry_run: bool = False, since_date=None) -> None:
             updated.append((row, msg, url))
             continue
 
-        sheets.update_row(row["row_number"], {"Job Link": url})
+        # Collected, not written here. Writing per row hit the Sheets quota of
+        # 60 writes per minute part-way through a full scan and aborted it.
+        pending[row["row_number"]] = {"Job Link": url}
         target_rows.remove(row)
         updated.append((row, msg, url))
+
+    if pending:
+        sheets.update_rows(pending)
 
     print(f"{'Would fill' if dry_run else 'Filled'} Job Link on {len(updated)} row(s):")
     for row, msg, url in updated:

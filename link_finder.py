@@ -119,7 +119,27 @@ def _disambiguate(matches: list[dict], msg: dict) -> dict | None:
         )
         if reranked[0][0] > 0 and (len(reranked) == 1 or reranked[1][0] < reranked[0][0]):
             return reranked[0][1]
-    return None
+
+    # Last resort: the date. A confirmation lands within a day or two of the
+    # application, so when the wording cannot tell two rows apart the one you
+    # applied to that week almost always can. Kept deliberately strict —
+    # exactly one candidate inside the window — because a link on the wrong
+    # row is worse than no link at all.
+    return _closest_by_date(matches, msg)
+
+
+def _closest_by_date(matches: list[dict], msg: dict, window: int = 2) -> dict | None:
+    from email.utils import parsedate_to_datetime
+    try:
+        sent = parsedate_to_datetime(msg.get("date", "")).date()
+    except (TypeError, ValueError):
+        return None
+    near = []
+    for r in matches:
+        applied = parse_date(r.get("Applied Draes", ""))
+        if applied and abs((sent - applied).days) <= window:
+            near.append(r)
+    return near[0] if len(near) == 1 else None
 
 
 def _prefix_overlap(row_tokens: set[str], email_tokens: set[str]) -> int:

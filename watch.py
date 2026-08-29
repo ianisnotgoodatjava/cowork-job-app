@@ -40,10 +40,10 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
 
     before = {r["row_number"] for r in sheets.list_rows()}
 
-    print("\n[1/4] New applications from Gmail")
+    print("\n[1/6] New applications from Gmail")
     step(app_scanner.scan, days_back=days_back, dry_run=dry_run)
 
-    print("\n[2/4] Rejections and replies")
+    print("\n[2/6] Rejections and replies")
     step(rejection_scanner.scan, days_back=max(days_back, 90), dry_run=dry_run)
     import reply_scanner
     step(reply_scanner.scan, days_back=max(days_back, 120), dry_run=dry_run,
@@ -53,7 +53,21 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     added = len(after) - len(before)
     print(f"\n  {added} row(s) added this pass")
 
-    print("\n[3/4] Researching postings and drafting outreach")
+    # These two are why a new row is useful the moment it lands: the posting
+    # link, then what the posting actually says. Both are plain HTTP, so they
+    # run on every pass whether or not the API key is set.
+    print("\n[3/6] Job posting links")
+    import link_finder
+    step(link_finder.scan, days_back=max(days_back, 520), dry_run=dry_run)
+
+    print("\n[4/6] Reading postings: qualifications, posting date, location")
+    if dry_run:
+        print("  (dry-run — skipped)")
+    else:
+        import enrich
+        step(enrich.run, limit=60, dry_run=False)
+
+    print("\n[5/6] Researching postings and drafting outreach")
     if not (os.environ.get("ANTHROPIC_API_KEY")
             or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         print("  skipped — no ANTHROPIC_API_KEY set.\n"
@@ -69,7 +83,7 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         step(auto_draft.run, limit=limit, min_fit=min_fit, dry_run=dry_run,
              create_drafts=not dry_run, new_only=True, write_link=not dry_run)
 
-    print("\n[4/4] Sort and colour")
+    print("\n[6/6] Sort and colour")
     if dry_run:
         print("  (dry-run — skipped)")
     else:

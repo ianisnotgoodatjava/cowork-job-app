@@ -50,6 +50,23 @@ def ensure_headers():
     if missing:
         start_col_index = len(existing)
         start_col_letter = chr(ord("A") + start_col_index)
+        # The tab's grid is a fixed width, and writing past it fails with
+        # "exceeds grid limits" rather than growing it. Widen first.
+        needed = start_col_index + len(missing)
+        tab_id = _tab_id(svc)
+        meta = svc.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+        width = next(
+            (sh["properties"]["gridProperties"]["columnCount"]
+             for sh in meta["sheets"]
+             if sh["properties"]["sheetId"] == tab_id), needed)
+        if width < needed:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=SHEET_ID,
+                body={"requests": [{"appendDimension": {
+                    "sheetId": tab_id, "dimension": "COLUMNS",
+                    "length": needed - width,
+                }}]},
+            ).execute()
         svc.spreadsheets().values().update(
             spreadsheetId=SHEET_ID,
             range=f"{SHEET_TAB}!{start_col_letter}1",

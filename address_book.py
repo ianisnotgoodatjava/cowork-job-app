@@ -164,5 +164,5 @@ def run(days_back: int = 520, refresh: bool = True, address: str = "") -> None:
               f"{len(v['delivered'])} delivered")
         print(f"      use: {shape or 'unknown'} — {evidence[:80]}")
 
-    print(f"\nBefore sending to a guessed address:")
-    print(f"  ./venv/bin/python cli.py addresses --check name@company.com")
+    print("\nBefore sending to a guessed address:")
+    print("  ./venv/bin/python cli.py addresses --check name@company.com")

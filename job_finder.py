@@ -132,7 +132,7 @@ def run(areas: list[str] | None = None, per_area: int = 4,
             "the one feature that cannot work without it."
         )
 
-    from company_match import _core, normalize
+    from company_match import _core
 
     client = anthropic.Anthropic()
     rows = sheets.list_rows()

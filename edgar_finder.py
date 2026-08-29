@@ -160,3 +160,90 @@ def run(company: str, since: str = "2024-01-01") -> None:
         print(f"  {person['name'][:34]:34s} via {person['filer'][:40]}")
     print(f"\n{len(people)} name(s). These come from filings that mention "
           f"{company};\nconfirm the person is actually there before writing.")
+
+
+# ---------------------------------------------------------------------------
+# Form D — the route into private firms.
+#
+# A prospectus only exists if a fund is sold to the public, so the smallest
+# shops here (Palo Duro, Talson, Tremblant, CommonWealth) never appear above.
+# But any private fund raising under Reg D files a Form D, and the form has a
+# mandatory Related Persons list: executive officers, directors and
+# promoters, by name. It is XML, so nothing has to be guessed out of prose.
+#
+# The trade-off against the prospectus route is seniority. Form D names
+# officers, not the analyst bench — though at a firm small enough to have no
+# prospectus, that is often the whole investment team anyway.
+
+_FORM_D_ENTITY_RE = re.compile(r"\b(llc|l\.l\.c|lp|l\.p|inc|ltd|gp|trust|"
+                               r"partners|holdings|capital|management)\b", re.I)
+
+
+def _tag(element) -> str:
+    return element.tag.split("}")[-1]
+
+
+def form_d_people(company: str, limit: int = 4) -> list[dict]:
+    """[{name, role, filer}] from a firm's Form D related-persons lists."""
+    import xml.etree.ElementTree as ET
+
+    query = urllib.parse.urlencode({"q": f'"{company}"', "forms": "D"})
+    try:
+        data = json.loads(_get(f"{_FTS}?{query}"))
+    except Exception:
+        return []
+
+    out, seen = [], set()
+    for hit in (data.get("hits", {}).get("hits") or [])[:limit]:
+        src = hit.get("_source") or {}
+        ciks = src.get("ciks") or []
+        if ":" not in hit.get("_id", "") or not ciks:
+            continue
+        accession, filename = hit["_id"].split(":", 1)
+        url = (f"{_ARCHIVE}/{ciks[0].lstrip('0')}/"
+               f"{accession.replace('-', '')}/{filename}")
+        try:
+            root = ET.fromstring(_get(url))
+        except Exception:
+            continue
+
+        for node in root.iter():
+            if _tag(node) != "relatedPersonInfo":
+                continue
+            parts, roles = {}, []
+            for el in node.iter():
+                name, text = _tag(el), (el.text or "").strip()
+                if name in ("firstName", "middleName", "lastName") and text:
+                    parts[name] = text
+                elif name == "relationship" and text:
+                    roles.append(text)
+            # The GP entity is listed as a related person too, with "n/a" as
+            # its first name and the LLC in the surname field.
+            first = parts.get("firstName", "")
+            if not first or first.lower() in ("n/a", "na", "none"):
+                continue
+            full = " ".join(filter(None, (first, parts.get("middleName"),
+                                          parts.get("lastName"))))
+            if not full or _FORM_D_ENTITY_RE.search(full):
+                continue
+            if full.lower() in seen:
+                continue
+            seen.add(full.lower())
+            out.append({"name": full, "role": ", ".join(roles) or "related person",
+                        "filer": (src.get("display_names") or [""])[0]})
+        time.sleep(0.2)
+    return out
+
+
+def run_form_d(company: str) -> None:
+    print(f"Form D related persons for {company!r}\n", flush=True)
+    people = form_d_people(company)
+    if not people:
+        print("No Form D filings naming individuals.")
+        return
+    for person in people:
+        print(f"  {person['name'][:30]:30s} {person['role'][:24]:24s} "
+              f"{person['filer'][:34]}")
+    print(f"\n{len(people)} name(s). Form D lists officers and directors, so "
+          f"these skew\nsenior — at a firm this small that is often the whole "
+          f"investment team.")

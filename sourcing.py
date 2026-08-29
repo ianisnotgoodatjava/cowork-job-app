@@ -17,6 +17,10 @@ energy developers, and each kind exposes its people differently:
                 name whoever runs the money. Free, full-text searchable, and
                 the only structured route into pure asset managers, which
                 FINRA does not register.
+  FORM_D        Private funds raising under Reg D must file a Form D, whose
+                Related Persons list names officers and directors in XML.
+                The only structured route into firms too small or too
+                private to publish a prospectus.
   TEAM_PAGE     Small private firms often list everyone on one page. Cheap
                 to try, unreliable to depend on: many render in JavaScript
                 and return nothing useful to a plain fetch.
@@ -39,6 +43,7 @@ from findability import _PUBLISHERS
 
 BROKERCHECK = "BROKERCHECK"
 EDGAR = "EDGAR"
+FORM_D = "FORM_D"
 PUBLISHED = "PUBLISHED"
 TEAM_PAGE = "TEAM_PAGE"
 SEARCH = "SEARCH"
@@ -125,6 +130,12 @@ def plan(company: str, role: str = "") -> list[dict]:
             "why": "not a broker-dealer — SEC fund filings name portfolio "
                    "managers, which FINRA does not cover",
             "how": f'./venv/bin/python cli.py edgar --company "{company}"',
+        })
+        steps.append({
+            "method": FORM_D,
+            "why": "private funds name officers and directors in Form D, the "
+                   "only structured source for firms with no prospectus",
+            "how": f'./venv/bin/python cli.py edgar --company "{company}" --form-d',
         })
         steps.append({
             "method": TEAM_PAGE,

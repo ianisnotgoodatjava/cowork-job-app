@@ -223,7 +223,10 @@ def cmd_targets(args):
 
 def cmd_edgar(args):
     import edgar_finder
-    edgar_finder.run(args.company, since=args.since)
+    if args.form_d:
+        edgar_finder.run_form_d(args.company)
+    else:
+        edgar_finder.run(args.company, since=args.since)
 
 
 def cmd_sourcing(args):
@@ -539,6 +542,8 @@ def main():
     p = sub.add_parser("edgar", help="Investment professionals named in a firm's SEC fund filings — covers asset managers FINRA does not")
     p.add_argument("--company", required=True)
     p.add_argument("--since", default="2024-01-01")
+    p.add_argument("--form-d", action="store_true",
+                   help="Form D related persons instead — officers and directors of private funds")
     p.set_defaults(func=cmd_edgar)
 
     p = sub.add_parser("sourcing", help="How to find a real person at this company — picks the right source per company")

@@ -124,6 +124,27 @@ def _req_from_ld(ld: dict) -> str:
     return ""
 
 
+# A careers landing page is not a posting. Reading one gives you the company's
+# benefits page and boilerplate, which is worse than an empty cell because it
+# looks like real data. A posting URL carries an id or a detail path.
+_SPECIFIC_URL_RE = re.compile(
+    r"/details/|/job/|/jobs/view/|/position/|"
+    r"(?:/|[?&=_-])(?:R-?)?\d{4,}\b", re.I)
+
+# Benefits copy trips the requirements heading matcher ("What we offer"), and
+# the result reads as if the role required a health savings account.
+_BENEFITS_RE = re.compile(
+    r"\b(medical coverage|dental|vision|401\(?k\)?|health savings|"
+    r"spending account|paid time off|pto\b|parental leave|tuition "
+    r"reimbursement|employer contributions|well-?being|life insurance|"
+    r"eligible dependents|domestic partners)\b", re.I)
+
+
+def _is_benefits(text: str) -> bool:
+    """True when a 'requirements' summary is really the benefits section."""
+    return len(_BENEFITS_RE.findall(text or "")) >= 2
+
+
 def _strip_tags(text: str) -> str:
     text = re.sub(r"<[^>]+>", " ", text or "")
     return re.sub(r"\s+", " ", text).strip()
@@ -169,6 +190,8 @@ def enrich_one(url: str) -> dict:
                 pass
         if not summary and len(desc) > 120:
             summary = desc[:480].rsplit(" ", 1)[0] + " …"
+    if _is_benefits(summary):
+        summary = ""
     out["Required Skills & Experience"] = summary
     return {k: v for k, v in out.items() if v}
 
@@ -182,6 +205,8 @@ def run(limit: int = 200, dry_run: bool = True, retry_failed: bool = False,
     for row in rows:
         url = (row.get("Job Link") or "").strip()
         if not url.startswith("http"):
+            continue
+        if not _SPECIFIC_URL_RE.search(url):
             continue
         key = str(row["row_number"]) + "|" + url
         if key in state and not (retry_failed and state[key] == "empty"):

@@ -22,9 +22,7 @@ Read-only. It never sends, drafts, or writes to the sheet.
 """
 
 import collections
-import datetime
 import re
-from email.utils import parsedate_to_datetime
 
 import gmail_client
 import interview_signals

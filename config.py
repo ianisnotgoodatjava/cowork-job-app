@@ -24,6 +24,7 @@ HEADERS = [
     "Result",
     "Job Link",                   # the posting itself (LinkedIn, Workday, ...)
     "Required Skills & Experience",
+    "Posted",
 ]
 
 # Prefilter for "does this sent email look like cold networking outreach" —

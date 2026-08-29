@@ -221,6 +221,11 @@ def cmd_targets(args):
     targets.run(days_back=args.days)
 
 
+def cmd_edgar(args):
+    import edgar_finder
+    edgar_finder.run(args.company, since=args.since)
+
+
 def cmd_sourcing(args):
     import sourcing
     sourcing.run(args.company, role=args.role or "", state=args.state)
@@ -530,6 +535,11 @@ def main():
     p = sub.add_parser("targets", help="Which open applications have nobody contacted yet — ranked so outreach goes where there is no coverage")
     p.add_argument("--days", type=int, default=520)
     p.set_defaults(func=cmd_targets)
+
+    p = sub.add_parser("edgar", help="Investment professionals named in a firm's SEC fund filings — covers asset managers FINRA does not")
+    p.add_argument("--company", required=True)
+    p.add_argument("--since", default="2024-01-01")
+    p.set_defaults(func=cmd_edgar)
 
     p = sub.add_parser("sourcing", help="How to find a real person at this company — picks the right source per company")
     p.add_argument("--company", required=True)

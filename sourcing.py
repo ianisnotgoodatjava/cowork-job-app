@@ -13,6 +13,10 @@ energy developers, and each kind exposes its people differently:
                 contact block -- name, title, phone, email -- on every
                 rating action, and the piece doubles as the hook. Nothing
                 needs inferring.
+  EDGAR         Everyone else with a fund: the SEC requires prospectuses to
+                name whoever runs the money. Free, full-text searchable, and
+                the only structured route into pure asset managers, which
+                FINRA does not register.
   TEAM_PAGE     Small private firms often list everyone on one page. Cheap
                 to try, unreliable to depend on: many render in JavaScript
                 and return nothing useful to a plain fetch.
@@ -34,6 +38,7 @@ import people_finder
 from findability import _PUBLISHERS
 
 BROKERCHECK = "BROKERCHECK"
+EDGAR = "EDGAR"
 PUBLISHED = "PUBLISHED"
 TEAM_PAGE = "TEAM_PAGE"
 SEARCH = "SEARCH"
@@ -111,6 +116,16 @@ def plan(company: str, role: str = "") -> list[dict]:
         })
 
     if not firm and not _publishes(company):
+        # BrokerCheck only registers people at broker-dealers, so a pure
+        # asset manager returns nobody — and those are exactly the firms
+        # posting "Portfolio Analyst". Fund filings name whoever runs the
+        # money, and are free and full-text searchable.
+        steps.append({
+            "method": EDGAR,
+            "why": "not a broker-dealer — SEC fund filings name portfolio "
+                   "managers, which FINRA does not cover",
+            "how": f'./venv/bin/python cli.py edgar --company "{company}"',
+        })
         steps.append({
             "method": TEAM_PAGE,
             "why": "no FINRA registration and not a publisher — small or "
@@ -137,3 +152,10 @@ def run(company: str, role: str = "", state: str = "NY") -> None:
     if firm:
         print("-" * 66)
         people_finder.run(company, state=state, limit=150, show=10)
+    elif not _publishes(company):
+        import edgar_finder
+        print("-" * 66)
+        try:
+            edgar_finder.run(company)
+        except Exception as exc:
+            print(f"EDGAR lookup failed: {type(exc).__name__}: {str(exc)[:80]}")

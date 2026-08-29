@@ -32,6 +32,7 @@ asset managers still need another route.
 Read-only, unauthenticated, and nothing here writes to the sheet or Gmail.
 """
 
+import datetime
 import json
 import re
 import time
@@ -84,6 +85,7 @@ def find_firm(name: str, limit: int = 8) -> list[tuple[str, str]]:
     """
     data = _get(_FIRM_URL, {"query": name, "nrows": limit, "start": 0})
     wanted = _distinctive(name)
+    squashed_q = re.sub(r"[^a-z0-9]", "", (name or "").lower())
     out = []
     for hit in (data.get("hits", {}).get("hits") or []):
         src = hit.get("_source") or {}
@@ -95,12 +97,12 @@ def find_firm(name: str, limit: int = 8) -> list[tuple[str, str]]:
         # "FIRST MADISON ADVISORS" and "DAVIS SKAGGS INVESTMENT MANAGEMENT",
         # which is how a staffing agency called Madison-Davis matched a
         # defunct Atlanta brokerage.
-        # Compared with spaces removed as well, because firms are written
-        # both ways: the sheet says "VanEck", the registry says "VAN ECK
-        # ASSOCIATES CORP.", and word-set overlap alone sees nothing in
-        # common. Squashing is still specific enough that "madisondavis"
-        # does not appear anywhere in "therobinsonhumphreycompany".
-        squashed_q = re.sub(r"[^a-z0-9]", "", (name or "").lower())
+        #
+        # Also compared with spaces removed, because firms are written both
+        # ways: the sheet says "VanEck", the registry says "VAN ECK ASSOCIATES
+        # CORP.", and word-set overlap alone sees nothing in common. Squashing
+        # stays specific enough that "madisondavis" appears nowhere in
+        # "therobinsonhumphreycompany".
         squashed_f = re.sub(r"[^a-z0-9]", "", firm_name.lower())
         related = bool(_distinctive(firm_name) & wanted) or (
             len(squashed_q) >= 5 and squashed_q in squashed_f)
@@ -134,6 +136,11 @@ def people_at_firm(firm_id: str, state: str = "", limit: int = 200) -> list[dict
                 "years": _years_since(started),
             })
         start += page
+        # A short page is the last page. Without this the loop kept asking
+        # for more until it hit `limit`, paying a round trip each time to be
+        # told there is nothing left.
+        if len(hits) < page:
+            break
         time.sleep(0.3)  # this is a free public service; do not hammer it
 
     # One person can hold several registrations at the same firm and comes
@@ -150,7 +157,6 @@ def people_at_firm(firm_id: str, state: str = "", limit: int = 200) -> list[dict
 
 
 def _years_since(date_str: str) -> int | None:
-    import datetime
     try:
         started = datetime.date.fromisoformat(date_str)
     except ValueError:

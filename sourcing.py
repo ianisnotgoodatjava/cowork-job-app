@@ -37,6 +37,7 @@ Read-only. Suggests people; never writes a draft or touches the sheet.
 """
 
 import re
+from functools import lru_cache
 
 import people_finder
 from findability import _PUBLISHERS
@@ -64,8 +65,15 @@ _ROLE_HINT_RE = re.compile(
 )
 
 
+@lru_cache(maxsize=256)
 def _is_broker_dealer(company: str) -> tuple[str, str] | None:
-    """(firm_id, firm_name) if FINRA knows this as a firm, else None."""
+    """(firm_id, firm_name) if FINRA knows this as a firm, else None.
+
+    Cached because plan() and run() both need the answer, and a sweep over
+    the sheet asks about the same company repeatedly — without this every
+    caller paid a fresh network round trip for a fact that cannot change
+    inside one run.
+    """
     try:
         firms = people_finder.find_firm(company, limit=5)
     except Exception:

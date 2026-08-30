@@ -83,6 +83,37 @@ def _draft(row: dict, bank: dict) -> str:
     bullets = _bullets_for(row, bank)
     lead = bullets[0] if bullets else ""
 
+    # The hook used to be a [[HOOK]] placeholder. Now that the sheet carries
+    # what the posting actually asks for, the opening can name the specific
+    # responsibility and pair it with the matching experience — which is a
+    # real paragraph rather than a blank, and gives you something to sharpen
+    # instead of something to start from scratch.
+    jd = " ".join((row.get("Required Skills & Experience") or "").split())
+    # Second line of defence. A description that is really the benefits page
+    # produced an opening about the company's childcare policy, which is worse
+    # than leaving the paragraph blank.
+    try:
+        import enrich
+        if jd and enrich._is_benefits(jd):
+            jd = ""
+    except Exception:
+        pass
+    if jd:
+        first_duty = re.split(r"(?<=[a-z])\s+(?=[A-Z])", jd)[0][:190].rstrip(" .,;")
+        hook = (
+            f"The posting describes {first_duty[0].lower()}{first_duty[1:]}, "
+            f"which is the part I wanted to ask you about rather than put to "
+            f"a recruiter.\n"
+            f"    ^ Sharpen this if you can — one checkable detail about their\n"
+            f"      own work beats a line about the posting. But this is a\n"
+            f"      real opening as it stands."
+        )
+    else:
+        hook = ("[[HOOK]]\n"
+                "    ^ No job description on this row yet, so there is nothing\n"
+                "      specific to open with. One paragraph: something they\n"
+                "      published or a real question about how their desk works.")
+
     return f"""To:      [[WHO]]  — find someone on the desk, not HR
 Company: {company}
 Role:    {role}
@@ -96,11 +127,7 @@ My name is Ian Liu. I graduated from NYU with a degree in Mathematics and
 Economics and currently work at REDACTED. I'm reaching out to learn more about
 your work on [[TEAM]] at {company}.
 
-[[HOOK]]
-    ^ Replace this. One paragraph, specific and checkable: something they
-      published, shipped, said, or a real question about how their desk
-      works. Everything else in this email is interchangeable — this is the
-      only part that earns a reply.
+{hook}
 
 {lead}
 

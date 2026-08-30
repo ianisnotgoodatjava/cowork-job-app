@@ -190,7 +190,14 @@ _BENEFITS_RE = re.compile(
     r"\b(medical coverage|dental|vision|401\(?k\)?|health savings|"
     r"spending account|paid time off|pto\b|parental leave|tuition "
     r"reimbursement|employer contributions|well-?being|life insurance|"
-    r"eligible dependents|domestic partners)\b", re.I)
+    r"eligible dependents|domestic partners|"
+    # Amex's page put "backup childcare" and "telehealth" under a heading the
+    # requirements matcher accepted, and the result opened a cold email with
+    # the company's childcare policy.
+    r"child ?care|telehealth|virtual doctors?|counseling sessions?|"
+    r"free access to|on-?site|wellness|mental health support|"
+    r"retirement plan|paid leave|sabbatical|gym membership|"
+    r"competitive base|bonus incentive|equity award)\b", re.I)
 
 
 def _is_benefits(text: str) -> bool:

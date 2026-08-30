@@ -18,6 +18,7 @@ guessing at it would lose information.
 
 import sheets
 import status as status_mod
+from date_utils import parse_date
 
 TEXT_COLUMNS = ("Company", "Position", "location", "Job Link")
 
@@ -25,6 +26,7 @@ TEXT_COLUMNS = ("Company", "Position", "location", "Job Link")
 def run(dry_run: bool = True) -> None:
     rows = sheets.list_rows()
     status_fix, network_fix, space_fix, unknown = [], [], [], []
+    date_fix = []
     patches: dict[int, dict] = {}
 
     for row in rows:
@@ -57,6 +59,19 @@ def run(dry_run: bool = True) -> None:
             patch["Network"] = "Yes" if net.upper() == "YES" else "No"
             network_fix.append(rn)
 
+        # One date format. The column is written by several scanners and by
+        # hand, so it held "2026-08-27", "2026/08/28" and "6/21" alongside the
+        # M/D/YYYY the rest of the sheet uses. Sorting already copes, but a
+        # column you read should not need three readings.
+        raw_date = (row.get("Applied Draes") or "").strip()
+        if raw_date:
+            parsed = parse_date(raw_date)
+            if parsed:
+                shown = parsed.strftime("%-m/%-d/%Y")
+                if shown != raw_date:
+                    patch["Applied Draes"] = shown
+                    date_fix.append((rn, raw_date, shown))
+
         for col in TEXT_COLUMNS:
             val = row.get(col)
             if isinstance(val, str) and val != val.strip():
@@ -77,6 +92,9 @@ def run(dry_run: bool = True) -> None:
 
     print(f"\n{verb} {len(network_fix)} Network cell(s) to an explicit Yes/No.")
     print(f"{verb} {len(space_fix)} cell(s) with stray whitespace.")
+    print(f"{verb} {len(date_fix)} applied date(s) into one format:")
+    for rn, old_d, new_d in date_fix:
+        print(f"  row {rn:3d} | {old_d!r} -> {new_d!r}")
 
     if unknown:
         print(f"\n{len(unknown)} row(s) have Status text I do not recognize "

@@ -30,6 +30,12 @@ from date_utils import parse_date
 
 MAX_PER_COMPANY = 3
 
+# Words a clause should never end on. Cutting a posting's bullet at one of
+# these produces "...market trends across", which reads as a typo.
+_DANGLING = {"across", "of", "to", "for", "in", "on", "with", "and", "or",
+             "the", "a", "an", "at", "by", "from", "into", "over", "under",
+             "within", "including", "such", "as", "between", "per", "via"}
+
 
 def _first_duty(jd: str) -> str:
     """The first responsibility from a posting, as a clause you can quote."""
@@ -42,10 +48,30 @@ def _first_duty(jd: str) -> str:
             return ""
     except Exception:
         pass
-    # Postings run bullets together without punctuation, so a capital letter
-    # after a lowercase one is the real separator far more often than a period.
-    duty = re.split(r"(?<=[a-z,)])\s+(?=[A-Z])", jd)[0]
-    return duty[:200].rstrip(" .,;:")
+    # Postings run their bullets together without punctuation, so a capital
+    # letter is the only separator available. A naive split cuts inside proper
+    # nouns: "market trends across North American Capacity" broke at "North"
+    # and left the clause ending on "across".
+    #
+    # A new bullet starts at a capitalised word whose predecessor is an
+    # ordinary lowercase word — not a preposition it would dangle from, and
+    # not itself capitalised, which would mean we are mid-name.
+    tokens = jd.split()
+    cut = len(tokens)
+    for i in range(1, len(tokens)):
+        word, prev = tokens[i], tokens[i - 1]
+        if not word[:1].isupper():
+            continue
+        if prev[:1].isupper() or prev.lower().strip(",;:") in _DANGLING:
+            continue
+        if not prev[-1:].isalpha():        # previous token ended a list item
+            continue
+        cut = i
+        break
+    duty = " ".join(tokens[:cut])[:220].rstrip(" .,;:")
+    while duty.split() and duty.split()[-1].lower() in _DANGLING:
+        duty = " ".join(duty.split()[:-1])
+    return duty.rstrip(" .,;:")
 
 
 # Ian's experience, keyed by what a posting is asking for. Ordered: the first
@@ -94,27 +120,41 @@ def _evidence_for(row: dict) -> str:
 
 
 def build_hook(row: dict, contact: dict) -> str:
+    """The middle paragraph, in the shape Ian's own third paragraph takes.
+
+    His reads: "I came across your background and was particularly interested
+    in your work <specific>. I've been learning more about <area>, and I found
+    your experience especially interesting given <reason>."
+
+    That opening cannot be used honestly here — this path knows the person's
+    name and address from the mailbox, not what they work on, and claiming to
+    have read their background would be the one kind of sentence a reader can
+    catch. So the paragraph keeps the rhythm and the register while making
+    only claims that are true: what the posting asks for, and what Ian has
+    actually done.
+    """
     duty = _first_duty(row.get("Required Skills & Experience", ""))
     evidence = _evidence_for(row)
-    role = (row.get("Position") or "the role").strip()
+    area = draft_writer.subject_topic(row.get("Position", "")).lower()
 
     if duty:
         return (
-            f"The posting describes {duty[0].lower()}{duty[1:]} — which is the "
-            f"part I wanted to ask someone doing the work about, rather than a "
-            f"recruiter. I {evidence}. What I cannot tell from outside is how "
-            f"much of the job is the analysis itself and how much is arguing "
-            f"the assumptions with people who have a view of their own. How "
-            f"does that split look on your team?"
+            f"I've been learning more about the {area} side of the business, "
+            f"and the part of the role that interested me most was "
+            f"{duty[0].lower()}{duty[1:]}. I {evidence}. What I can't tell "
+            f"from outside is how much of the work is the analysis itself and "
+            f"how much is making the case for it to people who have a view of "
+            f"their own, which is the sort of thing I'd rather ask about than "
+            f"guess at."
         )
-    # The opening paragraph has already said he applied, so repeating it here
-    # made the email state the same thing twice in consecutive sentences.
     return (
-        f"Rather than let that sit in a queue, I wanted to hear about the work "
-        f"from someone doing it. I {evidence}. What a posting never tells you "
-        f"is which part of the job actually takes the time — the analysis "
-        f"itself, or making the case for it to people who have their own view. "
-        f"I would rather ask than guess."
+        f"I've been learning more about the {area} side of the business, and "
+        f"I wanted to hear about it from someone doing the work rather than "
+        f"from a job posting. I {evidence}. I found your team's work "
+        f"especially interesting because it sits close to the markets I've "
+        f"been following, and I'd value hearing what the day actually looks "
+        f"like and what someone joining from a quantitative background "
+        f"usually has to learn first."
     )
 
 

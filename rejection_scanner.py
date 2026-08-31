@@ -104,6 +104,13 @@ DECISIVE_PHRASES = [
     # experience most closely aligns". The list had "decided to move forward
     # with other", which this does not contain.
     "move forward with candidates whose",
+    # Kroll's wording, which reports the role's state rather than a decision
+    # about you: "the position you applied for ... has now been filled and we
+    # are no longer considering applications for the role". The list had
+    # "position has been filled" and "filled this position", neither of which
+    # matches "has now been filled".
+    "has now been filled",
+    "no longer considering applications",
     # Huntington's Workday template: "although your qualifications are
     # impressive, at this time we have chosen not to pursue your application
     # further". The list had "pursue other candidates" and "we have decided

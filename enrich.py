@@ -200,6 +200,68 @@ _BENEFITS_RE = re.compile(
     r"competitive base|bonus incentive|equity award)\b", re.I)
 
 
+# An expired LinkedIn posting still renders: it shows "no longer available"
+# and a sidebar of other jobs. The requirements parser happily read that
+# sidebar, so 62% of the descriptions collected were somebody else's job ads
+# — "Housekeeper (Full Time, 1st Shift) ... Danbury, CT 3 weeks ago" stored
+# as the requirements for a trading role.
+_JOB_LIST_RE = re.compile(
+    r"\b\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago\b"
+    r"|Actively Hiring|Be an early applicant|\bPromoted\b"
+    r"|\b\d+\s+applicants?\b|No longer accepting applications"
+    r"|This job is no longer available|View all jobs",
+    re.I)
+
+
+def _is_job_list(text: str) -> bool:
+    """True when the text is a jobs listing panel rather than one posting."""
+    if not text:
+        return False
+    if _JOB_LIST_RE.search(text):
+        return True
+    # These panels repeat each title twice (link text plus heading), which is
+    # a shape real prose never has.
+    words = text.split()
+    for n in range(2, 7):
+        if len(words) >= 2 * n and words[:n] == words[n:2 * n]:
+            return True
+    return False
+
+
+# Filtering junk one pattern at a time kept losing: nav menus, breadcrumbs,
+# marketing boilerplate and facet counts all arrive looking different. So the
+# test is positive instead — a requirements list says what it wants from a
+# person, and text that never does is not one, whatever else it is.
+_REQUIREMENT_SIGNALS_RE = re.compile(
+    r"\b(experience|years?\b|degree|bachelor|master|mba|cfa|"
+    r"abilit(y|ies)|proficien(t|cy)|skills?|knowledge|familiar(ity)?|"
+    r"responsib(le|ilities)|qualif(ied|ications?)|candidate|"
+    r"you will|we are looking for|must have|preferred|required|"
+    r"strong\s+\w+|demonstrated|track record|comfortable with)\b", re.I)
+
+# Page furniture that is never part of a requirements list.
+_NAV_JUNK_RE = re.compile(
+    r"arrow-right|arrow-left|skip to (main|content)|breadcrumb|"
+    r"cookie|privacy policy|terms of use|sign in|create account|"
+    r"WHY WORK HERE|VIEW ALL|LEARN MORE\b", re.I)
+
+
+def _looks_like_requirements(text: str) -> bool:
+    """True when the text plausibly states what the role asks for."""
+    if not text or len(text.split()) < 12:
+        return False
+    if _NAV_JUNK_RE.search(text):
+        return False
+    letters = [c for c in text if c.isalpha()]
+    # Navigation runs are shouted; requirements are not.
+    if letters and sum(c.isupper() for c in letters) / len(letters) > 0.45:
+        return False
+    # Facet panels look like "perform data cleansing 1 perform reporting 1".
+    if len(re.findall(r"\s1\b", text)) >= 3:
+        return False
+    return len(_REQUIREMENT_SIGNALS_RE.findall(text)) >= 2
+
+
 def _is_benefits(text: str) -> bool:
     """True when a 'requirements' summary is really the benefits section."""
     return len(_BENEFITS_RE.findall(text or "")) >= 2
@@ -264,7 +326,8 @@ def enrich_one(url: str) -> dict:
                 pass
         if not summary and len(desc) > 120:
             summary = desc[:480].rsplit(" ", 1)[0] + " …"
-    if _is_benefits(summary):
+    if (_is_benefits(summary) or _is_job_list(summary)
+            or not _looks_like_requirements(summary)):
         summary = ""
     out["Required Skills & Experience"] = summary
     return {k: v for k, v in out.items() if v}

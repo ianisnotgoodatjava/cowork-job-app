@@ -24,14 +24,24 @@ OUT_DIR = os.path.join("logs", "drafts", "ready")
 CONTACTS_FILE = os.path.join("logs", "contacts_found.json")
 RESUME = os.path.expanduser("~/Ian_Liu_Resume.pdf")
 
-SIGNATURE = "Best regards,\nIan Liu\nicl2016@nyu.edu | REDACTED"
-
-
-# Your subject line, as you actually write it: "Recent NYU Graduate Inquiring
-# about ABS at Fitch Ratings" — 381 sent messages use this exact opening. The
-# topic is a short subject area, never the posting's full title, so
-# "Structured Finance - Asset-Backed Securities, Analyst - New York" has to be
-# cut down to what the desk actually does.
+# Measured over the 147 initial outreach emails sent between 2026-06-01 and
+# 2026-08-28, not described in adjectives. The shape below is what those
+# emails actually are:
+#
+#   subject   93% "Recent NYU Graduate Inquiring about <area> at <company>",
+#             the area a median of 2 words ("Research", "ABS", "Fund Ratings")
+#   body      median 6 blocks, 188 words (p25 169, p75 207)
+#   opening   85% begin "I hope you're doing well."
+#   closing   86% ask for 15-20 minutes, 91% mention the attached resume,
+#             82% sign off "Best regards", 56% add a separate thank-you line
+#
+# Two things the earlier template got wrong and this one does not: it opened
+# by announcing that he had applied for the role, which his own emails never
+# do — they ask to learn about the work — and it appended an email/phone
+# signature block that appears in none of them.
+# Your subject line, as you actually write it: 93% of the last three months'
+# initial emails are exactly this, and the area is a median of two words
+# ("Research", "ABS", "Fund Ratings") — never the posting's full title.
 SUBJECT_PREFIX = "Recent NYU Graduate Inquiring about"
 
 # Seniority and shape, not subject matter. Removing these is what turns a
@@ -44,20 +54,26 @@ _ROLE_NOISE_RE = re.compile(
     r"rotational?|full[- ]time|part[- ]time|i{1,3}|20\d\d)\b",
     re.I)
 
-# Location tails and requisition ids.
 _PLACE_RE = re.compile(
     r"\s*[-–(,]\s*(new york|nyc|ny|charlotte|boston|chicago|london|remote|"
     r"united states|us|usa|bethesda|stamford|jersey city|taipei)\b[^,]*",
     re.I)
 _REQ_RE = re.compile(r"\s*[-–(#]?\s*(req(uisition)?\.?\s*)?\b\d{4,}\b\)?", re.I)
 
+# The measured median is 2 words. Anything much longer stops reading like a
+# subject area and starts reading like a pasted job title.
+MAX_TOPIC_WORDS = 4
+
+# Words that survive the noise filter but name no subject area on their own.
+_GENERIC = {"business", "portfolio", "corporate", "global", "group", "markets",
+            "finance", "financial", "capital", "operations", "strategy",
+            "management", "services", "solutions", "support", "technology"}
+
 
 def subject_topic(role: str, fallback: str = "Research") -> str:
     """"Revenue Economics Analyst" -> "Revenue Economics"."""
     text = _REQ_RE.sub("", role or "")
     text = _PLACE_RE.sub("", text)
-    # Segments, longest-first: the substantive part of a title is usually the
-    # longest one once the seniority words are gone.
     segments = [seg.strip(" -–—/") for seg in re.split(r"[,/]|\s[-–—]\s", text)]
     cleaned = []
     for seg in segments:
@@ -67,7 +83,24 @@ def subject_topic(role: str, fallback: str = "Research") -> str:
             cleaned.append(without)
     if not cleaned:
         return fallback
-    return max(cleaned, key=len)
+    # Shortest is not the same as best. Splitting "Portfolio Analyst, Public
+    # Sector Finance" leaves "Portfolio" and "Public Sector Finance"; the
+    # short one is the generic half and says nothing. Prefer a segment that
+    # names a subject area, then take the shortest of those.
+    cleaned = [re.sub(r"\s*\([^)]*\)", "", c).strip() for c in cleaned]
+    cleaned = [c for c in cleaned if len(c) >= 3]
+    if not cleaned:
+        return fallback
+    usable = [c for c in cleaned if len(c.split()) <= MAX_TOPIC_WORDS]
+    if not usable:
+        return " ".join(max(cleaned, key=len).split()[:MAX_TOPIC_WORDS])
+    informative = [c for c in usable
+                   if len(c.split()) >= 2 or c.lower() not in _GENERIC]
+    pool = informative or usable
+    multi = [c for c in pool if len(c.split()) >= 2]
+    if multi:
+        return min(multi, key=lambda c: (len(c.split()), len(c)))
+    return min(pool, key=len)
 
 
 def display_company(name: str) -> str:
@@ -77,8 +110,6 @@ def display_company(name: str) -> str:
     name = re.sub(r"[,\s]+(inc|llc|l\.l\.c|ltd|corp|co)\.?$", "", name,
                   flags=re.I).strip(" ,.")
     words = name.split()
-    # A single all-caps token is an acronym, not shouting: SIFMA and KBRA are
-    # how those firms write themselves, and "Sifma" would look like a typo.
     if len(words) == 1:
         if name.isupper() and len(name) <= 6:
             return name
@@ -87,8 +118,6 @@ def display_company(name: str) -> str:
         return name
     letters = [c for c in name if c.isalpha()]
     if letters and all(c.isupper() for c in letters):
-        # Multi-word shouting gets title case, but short all-caps tokens
-        # inside it (PT, US, ETF) are acronyms and stay.
         return " ".join(w if len(w) <= 3 and w.isupper() else w.title()
                         for w in words)
     return name
@@ -100,26 +129,31 @@ def subject_for(row: dict, fallback: str = "Research") -> str:
     return f"{SUBJECT_PREFIX} {topic} at {company}"
 
 
-def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
-    """The full email body. `hook` is the only part that is not boilerplate."""
-    first = (contact["name"].split() or ["there"])[0]
-    company = (row.get("Company") or "").strip()
-    role = (row.get("Position") or "").strip()
+SIGN_OFF = "Best regards,\nIan Liu"
 
-    opening = (
-        f"My name is Ian Liu. I graduated from NYU in December 2024 with a "
-        f"degree in Mathematics and Economics, and I currently work as an "
-        f"Underwriting Assistant at REDACTED. I recently applied for the "
-        f"{role} role at {company}, and I wanted to reach out to you directly."
+
+def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
+    """The full email, in the six-block shape Ian actually sends."""
+    first = (contact["name"].split() or ["there"])[0]
+    company = display_company(row.get("Company", ""))
+    area = subject_topic(row.get("Position", ""))
+
+    intro = (
+        "I hope you're doing well. My name is Ian Liu, and I graduated from "
+        "NYU with a degree in Mathematics and Economics. I'm currently at AXA "
+        f"and wanted to reach out because I'm very interested in learning "
+        f"more about the {area.lower()} work at {company}."
     )
-    close = (
-        ask or
-        "If you have 15-20 minutes in the coming weeks, I would be grateful "
-        "for the chance to hear how you got into the work and how your team "
-        "approaches it. I have attached my resume for reference."
+    request = ask or (
+        "If you have 15\u201320 minutes for a quick call in the coming weeks, "
+        "I'd really appreciate the opportunity to hear about your experience "
+        "and expertise. I have attached my resume for your reference."
     )
-    return (f"Dear {first},\n\n{opening}\n\n{hook.strip()}\n\n{close}\n\n"
-            f"Thank you for your time.\n\n{SIGNATURE}\n")
+    thanks = ("Thank you very much for your time, and I hope we have a chance "
+              "to connect.")
+
+    return (f"Dear {first},\n\n{intro}\n\n{hook.strip()}\n\n{request}\n\n"
+            f"{thanks}\n\n{SIGN_OFF}\n")
 
 
 def _address_note(addr: str) -> str:
@@ -130,13 +164,34 @@ def _address_note(addr: str) -> str:
         return f"(address history unavailable: {type(exc).__name__})"
 
 
-def _existing_drafts() -> set:
-    """{(to, subject)} already sitting in Gmail.
+CREATED_FILE = os.path.join("logs", "drafts_created.json")
 
-    Re-running the generator used to create a second copy of every draft it
-    had made before, because nothing checked. Drafts are cheap to create and
-    cannot be deleted from here, so the check belongs before the call.
+
+def _load_created() -> set:
+    try:
+        with open(CREATED_FILE) as f:
+            return {tuple(x) for x in json.load(f)}
+    except (OSError, ValueError):
+        return set()
+
+
+def _save_created(pairs: set) -> None:
+    os.makedirs(os.path.dirname(CREATED_FILE), exist_ok=True)
+    with open(CREATED_FILE, "w") as f:
+        json.dump(sorted(list(p) for p in pairs), f, indent=1)
+
+
+def _existing_drafts(read_gmail: bool = True) -> set:
+    """{(to, subject)} already drafted.
+
+    Mostly served from a local record of what this tool created. Reading it
+    back from Gmail costs one API call per draft, and doing that on every run
+    exhausted the per-minute quota mid-way through creating new ones — so
+    Gmail is consulted at most once and the answer is cached.
     """
+    known = _load_created()
+    if known or not read_gmail:
+        return known
     try:
         from googleapiclient.discovery import build
         from google_auth import get_credentials
@@ -151,10 +206,12 @@ def _existing_drafts() -> set:
                        for h in msg["message"]["payload"]["headers"]}
             seen.add((headers.get("To", "").strip().lower(),
                       headers.get("Subject", "").strip()))
+        _save_created(seen)
         return seen
     except Exception as exc:
-        print(f"    (could not read existing drafts: {type(exc).__name__})")
-        return set()
+        print(f"    (could not read existing drafts: {type(exc).__name__}"
+              f" — relying on the local record instead)")
+        return known
 
 
 def write(row: dict, contacts: list[dict], out_dir: str = OUT_DIR,
@@ -194,6 +251,7 @@ def write(row: dict, contacts: list[dict], out_dir: str = OUT_DIR,
                                       body_text=body, attachments=attachments)
             if existing is not None:
                 existing.add(key)
+                _save_created(existing)
     return written
 
 
@@ -231,6 +289,13 @@ def run(create_drafts: bool = False, contacts_file: str = CONTACTS_FILE) -> None
             print(f"  {key}: no application on the sheet — skipped")
             continue
         row = entry[1]
+        # The subject is always derived from the row resolved right now, never
+        # read back from the contacts file. A stored subject was written
+        # against whatever the sheet looked like that day, and this file
+        # outlives several re-sorts — MacKenzie's contacts were carrying a
+        # subject naming a different company entirely.
+        for c in contacts:
+            c["subject"] = subject_for(row)
         paths = write(row, contacts, create_drafts=create_drafts,
                       existing=existing)
         made += 1

@@ -22,10 +22,15 @@ out of reach here by construction.
 """
 
 import re
+from email.utils import parsedate_to_datetime
 
+import gmail_client
 import sheets
 import status as status_mod
 from company_match import _core, normalize
+from date_utils import parse_date
+from link_finder import CONFIRMATION_PHRASES
+from rejection_scanner import _is_real_rejection
 from googleapiclient.discovery import build
 from google_auth import get_credentials
 
@@ -104,11 +109,126 @@ def dead_companies() -> list[str]:
             if not any(_same_company(slug, live) for live in still_open)]
 
 
+def _latest(messages: list[dict]):
+    """Newest parseable date in a set of messages, or None."""
+    import datetime as _dt
+    best = None
+    for msg in messages:
+        try:
+            when = parsedate_to_datetime(msg.get("date", ""))
+        except (TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=_dt.timezone.utc)
+        if best is None or when > best:
+            best = when
+    return best
+
+
+def _confirmations_by_company(days_back: int = 120) -> dict:
+    """slug -> newest genuine application-confirmation date, over all mail.
+
+    Fetched once for the whole sweep. Doing it per company meant one Gmail
+    search per candidate — 132 of them on this mailbox, which turned a
+    cleanup into a multi-minute crawl for an answer that comes from the same
+    result set every time.
+    """
+    import app_scanner
+
+    phrases = " OR ".join(f'"{ph}"' for ph in CONFIRMATION_PHRASES)
+    try:
+        messages = gmail_client.search_messages(
+            f"newer_than:{days_back}d ({phrases})",
+            include_body=True, max_results=400)
+    except Exception:
+        return {}
+
+    newest: dict = {}
+    for msg in messages:
+        # Parsed, not name-matched. Matching the company name against the
+        # subject read KBRA's daily rating alerts as applications to Kroll,
+        # because KBRA is Kroll Bond Rating Agency — which would have
+        # protected Kroll's drafts forever.
+        parsed = app_scanner._parse(msg)
+        if not parsed:
+            continue
+        # A rejection parses as a confirmation for the same company —
+        # "Application Status with Kroll" comes from Kroll Talent Acquisition
+        # and names the role — so without this the newest no reads as a newer
+        # application and the company is protected forever.
+        if _is_real_rejection(msg):
+            continue
+        when = _latest([msg])
+        if when is None:
+            continue
+        slug = _slug(parsed[0])
+        if slug and (slug not in newest or when > newest[slug]):
+            newest[slug] = when
+    return newest
+
+
+def has_newer_application(company: str, confirmations: dict | None = None,
+                          rows: list | None = None,
+                          days_back: int = 120) -> bool:
+    """True when Gmail holds an application this company's sheet rows predate.
+
+    The sheet is derived data and lags reality: a confirmation only becomes a
+    row once app_scanner has parsed it, and this project keeps finding
+    applications the parser missed — LinkedIn Easy Apply, SuccessFactors,
+    iCIMS display names. Voya was the expensive case. Its one row was a
+    rejected July role, so the company read as fully closed and its draft was
+    deleted; a second application had gone in on 31 August and was simply not
+    on the sheet.
+
+    The test is about staleness rather than outcome: if the mailbox shows an
+    application newer than the newest one the sheet knows about, the sheet is
+    behind and nothing should be deleted on it. Comparing against rejection
+    dates instead was tried and fails — rejections rarely carry the
+    confirmation phrases this query needs, so they never come back and every
+    company looks live.
+    """
+    if confirmations is None:
+        confirmations = _confirmations_by_company(days_back)
+    want = _slug(company)
+
+    sent = None
+    for slug, when in confirmations.items():
+        if _same_company(slug, want) and (sent is None or when > sent):
+            sent = when
+    if sent is None:
+        return False
+
+    if rows is None:
+        rows = sheets.list_rows()
+    applied = [parse_date(row.get("Applied Draes", ""))
+               for row in rows
+               if _same_company(_slug(row.get("Company") or ""), want)]
+    applied = [d for d in applied if d]
+    if not applied:
+        return True
+    return sent.date() > max(applied)
+
+
 def run(dry_run: bool = False) -> None:
     dead = dead_companies()
     if not dead:
         print("No companies where every application is closed.")
         return
+
+    # Second gate, against Gmail rather than the sheet. See
+    # has_newer_application: the sheet lags, and deleting on a stale read is
+    # what cost the Voya draft.
+    print(f"Checking {len(dead)} closed-looking companies against Gmail "
+          f"for newer applications...", flush=True)
+    confirmations = _confirmations_by_company()
+    rows = sheets.list_rows()
+    live = [c for c in dead if has_newer_application(c, confirmations, rows)]
+    if live:
+        for company in sorted(live):
+            print(f"  keeping {company} — a newer application exists in Gmail "
+                  f"that the sheet does not have")
+        dead = [c for c in dead if c not in set(live)]
+    print()
 
     svc = _svc()
     drafts = _drafts(svc)

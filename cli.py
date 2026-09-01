@@ -164,6 +164,11 @@ def cmd_enable_calendar(args):
     print("Granted." if google_auth.has_calendar_access() else "Not granted — try again.")
 
 
+def cmd_apply_profile(args):
+    import apply_autofill
+    apply_autofill.run(company=args.company, role=args.role)
+
+
 def cmd_prep(args):
     import prep_package
     if not args.url and not args.text_file:
@@ -497,6 +502,11 @@ def main():
     p.add_argument("--no-resume", action="store_true", help="Skip the tailored PDF resume")
     p.add_argument("--no-sheet", action="store_true", help="Don't write anything to the sheet")
     p.set_defaults(func=cmd_prep)
+
+    p = sub.add_parser("apply-profile", help="Export your autofill field map and the standard application answers")
+    p.add_argument("--company", default="", help="Company, to title the answer sheet")
+    p.add_argument("--role", default="", help="Role, to title the answer sheet")
+    p.set_defaults(func=cmd_apply_profile)
 
     p = sub.add_parser("backfill-job-descriptions", help="Fill the empty Job Description column from job links and application emails")
     p.add_argument("--dry-run", action="store_true")

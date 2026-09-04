@@ -244,7 +244,15 @@ def create_draft(to: str, subject: str, body_text: str, attachments: list[str] |
 # then means the second and third caller in one run pay nothing at all.
 
 _DRAFT_CACHE: dict = {}
-_BATCH_SIZE = 100
+
+# Gmail bills each sub-request in a batch separately: drafts.get costs 5 quota
+# units and the per-user ceiling is 250 units a second. Batching saves the HTTP
+# round trips, not the quota — a 100-wide batch bursts to 500 units at once and
+# comes back half 429. 40 per batch with a second between them sits at 200
+# units/second, just under the limit, and clears 300 drafts in about eight
+# seconds against the minute-plus a sequential walk took.
+_BATCH_SIZE = 40
+_BATCH_PAUSE = 1.0
 
 
 def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
@@ -300,6 +308,7 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
             break
 
     found: dict[str, dict] = {}
+    gone: set[str] = set()
     pending = list(ids)
     for attempt in range(5):
         if not pending:
@@ -310,7 +319,14 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
 
         def collect(request_id, response, exception):
             if exception is not None or not response:
-                failed.append(request_id)
+                # 404 means the draft went away between the list call and this
+                # fetch — sent, or deleted in another tab. It is genuinely gone,
+                # not a request worth retrying, and it must not hold up the run.
+                status = getattr(getattr(exception, "resp", None), "status", None)
+                if status == 404:
+                    gone.add(request_id)
+                else:
+                    failed.append(request_id)
                 return
             head = {h["name"]: h["value"]
                     for h in response["message"]["payload"].get("headers", [])}
@@ -322,6 +338,8 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
             }
 
         for begin in range(0, len(pending), _BATCH_SIZE):
+            if begin:
+                time.sleep(_BATCH_PAUSE)
             batch = svc.new_batch_http_request(callback=collect)
             for draft_id in pending[begin:begin + _BATCH_SIZE]:
                 batch.add(svc.users().drafts().get(
@@ -332,9 +350,10 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
 
     if pending:
         raise RuntimeError(
-            f"Gmail returned {len(found)} of {len(ids)} draft headers; "
-            f"{len(pending)} still failing after retries. Refusing to hand "
-            f"back a partial list — callers treat a missing draft as no draft.")
+            f"Gmail returned {len(found)} of {len(ids) - len(gone)} draft "
+            f"headers; {len(pending)} still failing after retries. Refusing to "
+            f"hand back a partial list — callers treat a missing draft as no "
+            f"draft.")
 
     out = [found[i] for i in ids if i in found]
     _DRAFT_CACHE[query] = out

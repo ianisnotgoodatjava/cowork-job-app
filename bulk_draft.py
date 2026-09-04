@@ -26,6 +26,7 @@ import contact_finder
 import draft_writer
 import sheets
 import status as status_mod
+from company_match import _core as _core_key
 from date_utils import parse_date
 
 MAX_PER_COMPANY = 3
@@ -120,42 +121,30 @@ def _evidence_for(row: dict) -> str:
 
 
 def build_hook(row: dict, contact: dict) -> str:
-    """The middle paragraph, in the shape Ian's own third paragraph takes.
+    """The middle paragraph, in whichever form the evidence actually supports.
 
-    His reads: "I came across your background and was particularly interested
-    in your work <specific>. I've been learning more about <area>, and I found
-    your experience especially interesting given <reason>."
-
-    That opening cannot be used honestly here — this path knows the person's
-    name and address from the mailbox, not what they work on, and claiming to
-    have read their background would be the one kind of sentence a reader can
-    catch. So the paragraph keeps the rhythm and the register while making
-    only claims that are true: what the posting asks for, and what Ian has
-    actually done.
+    One template produced 44 drafts sharing three openings between them. The
+    forms live in `hook_forms`; which one applies depends on what is known,
+    and the choice is seeded on the recipient so regenerating is stable.
     """
-    duty = _first_duty(row.get("Required Skills & Experience", ""))
-    evidence = _evidence_for(row)
-    area = draft_writer.subject_topic(row.get("Position", "")).lower()
+    import hook_forms
 
+    area = draft_writer.subject_topic(row.get("Position", "")).lower()
+    company = draft_writer.display_company(row.get("Company", ""))
+    duty = _first_duty(row.get("Required Skills & Experience", ""))
+    title = (contact.get("title") or "").strip()
+    seed = contact.get("email", "") or contact.get("name", "")
+
+    if title and not title.startswith("("):
+        curiosity = (contact.get("curiosity")
+                     or "have become particularly interested in how "
+                        "that work is judged from the inside.")
+        return hook_forms.with_title(contact.get("name", ""), title, company,
+                                     area, curiosity, seed)
     if duty:
-        return (
-            f"I've been learning more about the {area} side of the business, "
-            f"and the part of the role that interested me most was "
-            f"{duty[0].lower()}{duty[1:]}. I {evidence}. What I can't tell "
-            f"from outside is how much of the work is the analysis itself and "
-            f"how much is making the case for it to people who have a view of "
-            f"their own, which is the sort of thing I'd rather ask about than "
-            f"guess at."
-        )
-    return (
-        f"I've been learning more about the {area} side of the business, and "
-        f"I wanted to hear about it from someone doing the work rather than "
-        f"from a job posting. I {evidence}. I found your team's work "
-        f"especially interesting because it sits close to the markets I've "
-        f"been following, and I'd value hearing what the day actually looks "
-        f"like and what someone joining from a quantitative background "
-        f"usually has to learn first."
-    )
+        clause = duty[0].lower() + duty[1:]
+        return hook_forms.with_posting(company, area, clause, seed)
+    return hook_forms.team_only(company, area, seed)
 
 
 def _subject(row: dict) -> str:
@@ -191,10 +180,31 @@ def run(last: int = 50, per_company: int = MAX_PER_COMPANY,
             by_company[key] = row
 
     existing = draft_writer._existing_drafts() if create_drafts else None
+
+    # Addresses and companies the researched set already covers. The two
+    # generators run independently over the same sheet, and without this the
+    # same person is drafted twice — once with a researched hook and once with
+    # a generated one, both landing in the inbox of someone who did not ask.
     claimed: set = set()
+    handled_companies: set = set()
+    try:
+        import json
+        with open(draft_writer.CONTACTS_FILE) as fh:
+            researched = json.load(fh)
+        for company, contacts in researched.items():
+            handled_companies.add(_core_key(company).replace(" ", ""))
+            for c in contacts:
+                claimed.add(c["email"].strip().lower())
+        print(f"  ({len(claimed)} address(es) already covered by researched "
+              f"contacts across {len(handled_companies)} company(ies))\n")
+    except (OSError, ValueError):
+        researched = {}
     total, companies, skipped = 0, 0, []
     for key, row in sorted(by_company.items(),
                            key=lambda kv: kv[1]["row_number"]):
+        if _core_key(row.get("Company", "")).replace(" ", "") in handled_companies:
+            skipped.append((row, "already covered by researched contacts"))
+            continue
         hits = [h for h in contact_finder.for_company(row["Company"], people)
                 if h["email"].lower() not in claimed
                 and contact_finder.has_real_name(h)]
@@ -216,11 +226,21 @@ def run(last: int = 50, per_company: int = MAX_PER_COMPANY,
                 "source": ("they replied to you before" if h["replied"]
                            else "you have written to them before" if h["wrote_to"]
                            else "appeared in a thread with this company"),
-                "confidence": ("address confirmed by delivered mail"
-                               if h.get("delivered")
-                               else "from an unsent draft — the address has "
-                                    "never actually been delivered to, so "
-                                    "treat it as unverified"),
+                # Three genuinely different things, previously collapsed
+                # into one reassuring sentence. An address you once wrote to
+                # and never heard back from is not "confirmed" — it is the
+                # weakest evidence in the mailbox, and calling it confirmed is
+                # how eli.nir@nomura.com came to be presented as a real
+                # contact when the only trace of it was Ian's own unanswered
+                # email from eighteen months earlier.
+                "confidence": (
+                    "they replied to you from this address, so it works"
+                    if h.get("replied")
+                    else "UNVERIFIED — you wrote to this address before and "
+                         "never got a reply; it may be wrong, or they may "
+                         "have left"
+                    if h.get("delivered")
+                    else "UNVERIFIED — only ever appeared in an unsent draft"),
                 "subject": _subject(row),
                 "hook": build_hook(row, h),
             })

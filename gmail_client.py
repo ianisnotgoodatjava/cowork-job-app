@@ -226,3 +226,94 @@ def create_draft(to: str, subject: str, body_text: str, attachments: list[str] |
         userId="me", body={"message": {"raw": encoded}}
     ).execute()
     return draft["id"]
+
+
+# ---------------------------------------------------------------------------
+# Draft headers.
+#
+# Three modules needed "every draft, with its To and Subject" and each grew its
+# own copy: draft_cleanup._drafts, findability._draft_index and
+# draft_writer._existing_drafts. All three walked the list and then issued one
+# drafts().get() per draft -- around 320 requests on this mailbox, at 5 quota
+# units each. Running two of them in the same minute is what exhausted the
+# per-user quota mid-sweep and left `cleanup-drafts` throwing 403s after the
+# dry run had already done the work.
+#
+# Gmail answers a batch of sub-requests in a single HTTP round trip, so the
+# same 320 fetches go out as 4 requests instead of 320. The per-process cache
+# then means the second and third caller in one run pay nothing at all.
+
+_DRAFT_CACHE: dict = {}
+_BATCH_SIZE = 100
+
+
+def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
+    """[{id, to, subject, date}] for drafts, batched and cached per process.
+
+    `query` is a Gmail search string; passing one narrows the fetch at the
+    server rather than filtering afterwards, which is far cheaper when the
+    caller only wants one company's drafts.
+
+    Partial results are never returned. A batch sub-request can fail on its
+    own -- rate limiting is the common one -- and a callback that quietly
+    drops those hands back a short list that looks complete. That is worse
+    than an error here: draft_cleanup would read a missing draft as "no draft
+    for this company" and findability would report a covered application as
+    uncovered. Failures are retried with backoff, and anything still missing
+    raises.
+    """
+    if not refresh and query in _DRAFT_CACHE:
+        return _DRAFT_CACHE[query]
+
+    svc = _service()
+    ids, token = [], None
+    while True:
+        params = {"userId": "me", "maxResults": 100, "pageToken": token}
+        if query:
+            params["q"] = query
+        page = _retry(lambda: svc.users().drafts().list(**params).execute())
+        ids += [d["id"] for d in page.get("drafts", [])]
+        token = page.get("nextPageToken")
+        if not token:
+            break
+
+    found: dict[str, dict] = {}
+    pending = list(ids)
+    for attempt in range(5):
+        if not pending:
+            break
+        if attempt:
+            time.sleep(20 * attempt)
+        failed: list[str] = []
+
+        def collect(request_id, response, exception):
+            if exception is not None or not response:
+                failed.append(request_id)
+                return
+            head = {h["name"]: h["value"]
+                    for h in response["message"]["payload"].get("headers", [])}
+            found[request_id] = {
+                "id": request_id,
+                "to": (head.get("To") or "").strip(),
+                "subject": (head.get("Subject") or "").strip(),
+                "date": head.get("Date", ""),
+            }
+
+        for begin in range(0, len(pending), _BATCH_SIZE):
+            batch = svc.new_batch_http_request(callback=collect)
+            for draft_id in pending[begin:begin + _BATCH_SIZE]:
+                batch.add(svc.users().drafts().get(
+                    userId="me", id=draft_id, format="metadata"),
+                    request_id=draft_id)
+            batch.execute()
+        pending = failed
+
+    if pending:
+        raise RuntimeError(
+            f"Gmail returned {len(found)} of {len(ids)} draft headers; "
+            f"{len(pending)} still failing after retries. Refusing to hand "
+            f"back a partial list — callers treat a missing draft as no draft.")
+
+    out = [found[i] for i in ids if i in found]
+    _DRAFT_CACHE[query] = out
+    return out

@@ -219,19 +219,9 @@ def _existing_drafts(read_gmail: bool = True) -> set:
     if known or not read_gmail:
         return known
     try:
-        from googleapiclient.discovery import build
-        from google_auth import get_credentials
-        svc = build("gmail", "v1", credentials=get_credentials())
-        listed = svc.users().drafts().list(
-            userId="me", maxResults=300).execute().get("drafts", [])
-        seen = set()
-        for d in listed:
-            msg = svc.users().drafts().get(
-                userId="me", id=d["id"], format="metadata").execute()
-            headers = {h["name"]: h["value"]
-                       for h in msg["message"]["payload"]["headers"]}
-            seen.add((headers.get("To", "").strip().lower(),
-                      headers.get("Subject", "").strip()))
+        import gmail_client
+        seen = {(d["to"].strip().lower(), d["subject"].strip())
+                for d in gmail_client.draft_headers()}
         _save_created(seen)
         return seen
     except Exception as exc:

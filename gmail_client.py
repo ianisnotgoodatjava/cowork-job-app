@@ -266,12 +266,34 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
         return _DRAFT_CACHE[query]
 
     svc = _service()
+
+    def _page(params):
+        """One page of the draft list, or a clear error.
+
+        _retry returns None when it gives up, which is right for skipping a
+        single message mid-scan but wrong here: a dropped page silently
+        shortens the draft list, and every caller reads a missing draft as no
+        draft. The quota that matters is per-minute, so the waits are long.
+        """
+        for wait in (0, 20, 45, 60):
+            if wait:
+                time.sleep(wait)
+            try:
+                return svc.users().drafts().list(**params).execute()
+            except Exception as exc:
+                status = getattr(getattr(exc, "resp", None), "status", None)
+                if status not in (403, 429, 500, 502, 503, 504):
+                    raise
+        raise RuntimeError(
+            "Gmail would not return the draft list (rate limited). Nothing "
+            "was read, so no caller can mistake this for an empty mailbox.")
+
     ids, token = [], None
     while True:
         params = {"userId": "me", "maxResults": 100, "pageToken": token}
         if query:
             params["q"] = query
-        page = _retry(lambda: svc.users().drafts().list(**params).execute())
+        page = _page(params)
         ids += [d["id"] for d in page.get("drafts", [])]
         token = page.get("nextPageToken")
         if not token:

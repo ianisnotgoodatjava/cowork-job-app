@@ -46,30 +46,28 @@ def _slug(company: str) -> str:
             or normalize(company or "").replace(" ", ""))
 
 
-def _drafts(svc) -> list[dict]:
-    """Every draft with a recipient: {id, addr, domain, subject}."""
-    out, page = [], None
-    while True:
-        resp = svc.users().drafts().list(
-            userId="me", maxResults=100, pageToken=page).execute()
-        for draft in resp.get("drafts", []):
-            full = svc.users().drafts().get(
-                userId="me", id=draft["id"], format="metadata").execute()
-            headers = {h["name"]: h["value"]
-                       for h in full["message"]["payload"].get("headers", [])}
-            match = _EMAIL_RE.search(headers.get("To", ""))
-            if not match:
-                continue
-            addr = match.group(0).lower()
-            out.append({
-                "id": draft["id"],
-                "addr": addr,
-                "domain": addr.split("@")[1].split(".")[0],
-                "subject": headers.get("Subject", ""),
-            })
-        page = resp.get("nextPageToken")
-        if not page:
-            break
+def _drafts(svc=None) -> list[dict]:
+    """Every draft with a recipient: {id, addr, domain, subject}.
+
+    The listing itself lives in gmail_client.draft_headers, which batches the
+    per-draft metadata fetches and caches them for the run. This used to issue
+    one request per draft here, and findability did the same again a moment
+    later in the same pipeline — together enough to exhaust the per-minute
+    quota and leave the sweep throwing 403s after the dry run had already
+    done the work.
+    """
+    out = []
+    for draft in gmail_client.draft_headers():
+        match = _EMAIL_RE.search(draft["to"])
+        if not match:
+            continue
+        addr = match.group(0).lower()
+        out.append({
+            "id": draft["id"],
+            "addr": addr,
+            "domain": addr.split("@")[1].split(".")[0],
+            "subject": draft["subject"],
+        })
     return out
 
 

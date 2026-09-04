@@ -89,6 +89,13 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         step(auto_draft.run, limit=limit, min_fit=min_fit, dry_run=dry_run,
              create_drafts=not dry_run, new_only=True, write_link=not dry_run)
 
+    print("\n[5b/7] Drafts to companies that already said no")
+    if dry_run:
+        print("  (dry-run — skipped)")
+    else:
+        import draft_cleanup
+        step(draft_cleanup.run, dry_run=False)
+
     print("\n[6/7] Housekeeping"
           f"{' (deep — once a day)' if deep else ' (light)'}")
     if dry_run:
@@ -102,8 +109,12 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
             import dedupe as dedupe_mod
             import fix_positions
             import location_backfill
+            import jd_backfill
             import network_audit
+            import reoutreach
             step(dedupe_mod.run, dry_run=False, max_day_gap=30)
+            step(jd_backfill.run, dry_run=False, limit=25, days_back=520)
+            step(reoutreach.scan, days_back=400, min_silent_days=21)
             step(fix_positions.run, dry_run=False, days_back=520)
             step(location_backfill.run, dry_run=False)
             step(network_audit.run, days_back=460, dry_run=False)
@@ -114,11 +125,15 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
             else:
                 print("  find-jobs skipped — no ANTHROPIC_API_KEY set")
 
-    print("\n[7/7] Sort and colour")
+    print("\n[7/8] Sort and colour")
     if dry_run:
         print("  (dry-run — skipped)")
     else:
         step(sheets.sort_by_applied_date)
         step(sheet_format.apply_status_colors)
+
+    print("\n[8/8] Applications still without a draft")
+    import findability
+    step(findability.run_coverage, days_back=60)
 
     print("\nPass complete.")

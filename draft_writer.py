@@ -70,8 +70,19 @@ _GENERIC = {"business", "portfolio", "corporate", "global", "group", "markets",
             "management", "services", "solutions", "support", "technology"}
 
 
+# Compounds where a "noise" word is actually part of the subject area.
+# "Analyst - Manager Research" is manager research — stripping "Manager" as a
+# seniority word left "Research", which is a different job.
+_PROTECTED_RE = re.compile(
+    r"\b(manager research|manager selection|managed care|"
+    r"investment manager|director of research|program trading)\b", re.I)
+
+
 def subject_topic(role: str, fallback: str = "Research") -> str:
     """"Revenue Economics Analyst" -> "Revenue Economics"."""
+    protected = _PROTECTED_RE.search(role or "")
+    if protected:
+        return protected.group(0).title()
     text = _REQ_RE.sub("", role or "")
     text = _PLACE_RE.sub("", text)
     segments = [seg.strip(" -–—/") for seg in re.split(r"[,/]|\s[-–—]\s", text)]
@@ -133,16 +144,31 @@ SIGN_OFF = "Best regards,\nIan Liu"
 
 
 def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
-    """The full email, in the six-block shape Ian actually sends."""
+    """The full email, in the six-block shape Ian actually sends.
+
+    The intro is close to verbatim from the corpus. Two things it must never
+    do, both measured: mention having applied (2% of 147 emails say "applied",
+    0% say "application"), and give a reason for writing other than wanting to
+    learn about the person's work. The earlier version led with the
+    application, which is the opposite of how every one of these is written.
+    """
     first = (contact["name"].split() or ["there"])[0]
     company = display_company(row.get("Company", ""))
     area = subject_topic(row.get("Position", ""))
+    # "Cook M&A Advisory Services's" is not how anyone writes it, and
+    # "Research research team" is what appending a fixed noun produced.
+    # Acronyms keep their case; ordinary words are lowercased inside the
+    # sentence, the way "Capital Markets team" reads in your own emails.
+    area_phrase = area if area.isupper() else area[0].upper() + area[1:]
 
+    # "I came across" moves out of the intro so the hook can use it, which is
+    # where it belongs: 51% of the real hook paragraphs are about the reader's
+    # work, and only 2% mention any of Ian's own past employers.
     intro = (
-        "I hope you're doing well. My name is Ian Liu, and I graduated from "
-        "NYU with a degree in Mathematics and Economics. I'm currently at AXA "
-        f"and wanted to reach out because I'm very interested in learning "
-        f"more about the {area.lower()} work at {company}."
+        "I hope you're doing well. My name is Ian Liu. I recently graduated "
+        "from NYU with a degree in Mathematics and Economics and currently "
+        f"work at AXA. I'm reaching out because I'm very interested in "
+        f"learning more about {area_phrase} at {company}."
     )
     request = ask or (
         "If you have 15\u201320 minutes for a quick call in the coming weeks, "
@@ -224,9 +250,20 @@ def write(row: dict, contacts: list[dict], out_dir: str = OUT_DIR,
     written = []
 
     for n, c in enumerate(contacts, 1):
-        body = compose(c, row, c["hook"], c.get("ask", ""))
         note = _address_note(c["email"])
-        path = os.path.join(out_dir, f"{row['row_number']:03d}_{slug}_{n}.txt")
+        # A hard stop, not a note. This check existed in bulk_draft and was
+        # lost in a refactor, after which three drafts were addressed to
+        # addresses that had already bounced. Both generators write through
+        # here, so this is the one place it cannot be lost from again.
+        if note.startswith("BOUNCED BEFORE"):
+            print(f"    skipped {c['email']}: {note}")
+            continue
+        body = compose(c, row, c["hook"], c.get("ask", ""))
+        # Named for the company, not the row. Row numbers move every time the
+        # sheet is re-sorted, so row-named files left orphans behind: after
+        # MUFG shifted from 592 to 591 both existed, and the stale one still
+        # carried a bug that had already been fixed.
+        path = os.path.join(out_dir, f"{slug}_{n}.txt")
         with open(path, "w", encoding="utf-8") as f:
             f.write(
                 f"To:        {c['email']}\n"
@@ -296,6 +333,16 @@ def run(create_drafts: bool = False, contacts_file: str = CONTACTS_FILE) -> None
         # subject naming a different company entirely.
         for c in contacts:
             c["subject"] = subject_for(row)
+            # Rebuild the hook through the varied forms when the pieces are
+            # stored, so the researched drafts do not all share one skeleton
+            # either. A hand-written hook with no stored curiosity clause is
+            # left exactly as written.
+            if c.get("curiosity") and c.get("title"):
+                import hook_forms
+                c["hook"] = hook_forms.with_title(
+                    c["name"], c["title"], display_company(row.get("Company", "")),
+                    subject_topic(row.get("Position", "")).lower(),
+                    c["curiosity"], c.get("email", c["name"]))
         paths = write(row, contacts, create_drafts=create_drafts,
                       existing=existing)
         made += 1

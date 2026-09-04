@@ -10,7 +10,6 @@ Everything here is a lookup against mail you already have. No web, no API.
 """
 
 import re
-from collections import defaultdict
 
 import gmail_client
 from company_match import company_in_sender
@@ -182,7 +181,9 @@ def for_company(company: str, people: dict) -> list[dict]:
             if company_in_sender(company, p["email"])]
     # Someone who replied to you outranks someone you only wrote to, which
     # outranks an address that merely appeared in a thread.
-    # Delivered beats drafted; a reply beats an outbound; then frequency.
+    # A reply is the only real proof the address works and the person is
+    # still there. Everything below it is a guess of Ian's own that nobody
+    # answered, so it ranks far lower than the old ordering implied.
     hits.sort(key=lambda p: (p["replied"], p.get("delivered", False),
                              p["wrote_to"], p["seen"]), reverse=True)
     return hits

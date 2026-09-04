@@ -27,6 +27,7 @@ Read-only: reads the sheet and the address_book cache, writes nothing.
 import json
 import os
 
+import gmail_client
 import sheets
 import status as status_mod
 from company_match import _core, _is_vendor_domain, normalize
@@ -148,42 +149,13 @@ def rank(days_back: int | None = None) -> dict[str, list]:
 
 def _draft_index() -> tuple[set[str], list[str]]:
     """(recipient domain labels, draft subjects) for every existing draft."""
-    import time
-
-    from googleapiclient.discovery import build
-    from google_auth import get_credentials
-
-    svc = build("gmail", "v1", credentials=get_credentials())
-
-    def call(fn):
-        for _ in range(6):
-            try:
-                return fn()
-            except Exception as exc:
-                if "403" in str(exc) or "rateLimit" in str(exc):
-                    time.sleep(15)
-                    continue
-                raise
-        raise RuntimeError("Gmail rate limit")
-
     domains: set[str] = set()
     subjects: list[str] = []
-    token = None
-    while True:
-        page = call(lambda: svc.users().drafts().list(
-            userId="me", maxResults=100, pageToken=token).execute())
-        for draft in page.get("drafts", []):
-            full = call(lambda: svc.users().drafts().get(
-                userId="me", id=draft["id"], format="metadata").execute())
-            head = {h["name"]: h["value"]
-                    for h in full["message"]["payload"]["headers"]}
-            to = (head.get("To") or "").lower()
-            if "@" in to:
-                domains.add(_domain_label(to.split("@")[-1].strip("> ")))
-            subjects.append((head.get("Subject") or "").lower())
-        token = page.get("nextPageToken")
-        if not token:
-            break
+    for draft in gmail_client.draft_headers():
+        to = draft["to"].lower()
+        if "@" in to:
+            domains.add(_domain_label(to.split("@")[-1].strip("> ")))
+        subjects.append(draft["subject"].lower())
     return domains, subjects
 
 

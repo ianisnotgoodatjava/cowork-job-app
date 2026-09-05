@@ -136,4 +136,14 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     import findability
     step(findability.run_coverage, days_back=60)
 
+    # And who to write to. Naming the gap is only half of it -- the sourcing
+    # modules existed but were reachable only by typing a command, so they
+    # contributed nothing to the scheduled run. BrokerCheck is one fast
+    # request per firm, so the roster is affordable here; EDGAR has to parse
+    # whole filings and stays manual.
+    if not dry_run:
+        import sourcing
+        _have, missing = findability.coverage(days_back=60)
+        step(sourcing.worklist, [row for row, _tier in missing], limit=12)
+
     print("\nPass complete.")

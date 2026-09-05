@@ -157,6 +157,13 @@ def run(days_back: int = 30, dry_run: bool = False) -> None:
               "contact\n   and finishes the email instead of leaving "
               "[[WHO]]/[[HOOK]] placeholders)")
 
+    print("\n[5ba/6] Repeat introductions")
+    # Cheaper to catch here than to notice after sending: the second email
+    # arrives with no memory of the first and tells the reader it was
+    # generated. 19 had accumulated before this existed.
+    import recent_contacts
+    _step(recent_contacts.sweep, dry_run=dry_run)
+
     print("\n[5bb/6] Drafts to companies that already said no")
     # Rejections arrive after the draft is written, so this is the sweep that
     # keeps Drafts honest. Drafts were sitting addressed to desks at

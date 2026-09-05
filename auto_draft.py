@@ -77,10 +77,12 @@ SYSTEM = """You research two contacts and write a cold outreach email to each, f
 WHO IAN IS
 - B.A. Mathematics and Economics, NYU, December 2024. REDACTED.
 - Currently Underwriting Assistant, General Property at REDACTED (Jun 2025-).
-- REDACTED, Sales & Trading Summer Analyst, Taipei (Jun-Aug 2024):
-  rotated Rates Trading, Emerging Markets FX and FX Quant desks; wrote daily
-  market commentary; researched FX volatility with ARMA-GARCH models;
-  backtested G10 rates momentum and currency carry strategies.
+- A sales & trading summer internship in Taipei (Jun-Aug 2024): rates, EM FX
+  and FX quant desks; daily market commentary; FX volatility with ARMA-GARCH;
+  backtested G10 rates momentum and currency carry.
+  Refer to this as markets or FX experience. Do NOT name the bank: he has
+  asked twice not to, and "REDACTED" appears in generated drafts and in none
+  of the 345 emails he has actually sent.
 - REDACTED, Investment Banking Fall Analyst Intern (Aug-Dec 2023):
   project finance and infrastructure analysis, renewable energy and EV
   charging, capital raising materials.
@@ -329,6 +331,16 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
                 continue
             if verdict.startswith("MISMATCH"):
                 print(f"    ! {verdict[:96]}")
+
+            # Style gate. The generator's drift from the corpus was blunt and
+            # measurable -- an invented "icl2016@nyu.edu | REDACTED"
+            # signature on every draft against 0 of 345 real emails -- so it
+            # is reported here rather than found in Drafts a week later.
+            import style_check
+            for problem in style_check.check(
+                    body, fields.get(f"subject_{i}", "")):
+                print(f"    style: {problem[:94]}")
+
             seen_addr.add(addr.lower())
             contacts.append({
                 "name": name, "addr": addr, "verdict": verdict,

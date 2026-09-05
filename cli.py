@@ -169,6 +169,17 @@ def cmd_apply_profile(args):
     apply_autofill.run(company=args.company, role=args.role)
 
 
+def cmd_find_people(args):
+    import people_search
+    people_search.run(args.company, role=args.role, domain=args.domain,
+                      state=args.state)
+
+
+def cmd_recent_contacts(args):
+    import recent_contacts
+    recent_contacts.sweep(dry_run=args.dry_run, days=args.days)
+
+
 def cmd_cover_letter(args):
     import cover_letter
     made = cover_letter.build(args.body_file, args.company,
@@ -440,6 +451,14 @@ def cmd_save_contact(args):
 
 
 def cmd_draft_outreach_email(args):
+    import recent_contacts
+    when = recent_contacts.is_duplicate(args.to, args.subject)
+    if when:
+        print(f"Refusing: you already wrote to {args.to} on {when}.")
+        print("A second introduction inside a year reads as generated, not "
+              "meant. Send a follow-up on the original thread instead, or "
+              "pick someone else on the desk.")
+        return
     body = _read_body(args)
     gmail_client.create_draft(args.to, args.subject, body, attachments=args.attach)
     sheets.update_row(args.row, {"Outreach Email Status": "drafted"})
@@ -558,6 +577,18 @@ def main():
     p.add_argument("--company", default="", help="Company, to title the answer sheet")
     p.add_argument("--role", default="", help="Role, to title the answer sheet")
     p.set_defaults(func=cmd_apply_profile)
+
+    p = sub.add_parser("find-people", help="Rank reachable contacts at a company: desk match, VP/Director band, address, minus anyone emailed this year")
+    p.add_argument("--company", required=True)
+    p.add_argument("--role", default="", help="The role you applied to, for desk matching")
+    p.add_argument("--domain", default="", help="Mail domain, to build addresses")
+    p.add_argument("--state", default="NY")
+    p.set_defaults(func=cmd_find_people)
+
+    p = sub.add_parser("prune-repeat-contacts", help="Delete queued first-touch drafts to anyone you already emailed inside the window")
+    p.add_argument("--days", type=int, default=365)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_recent_contacts)
 
     p = sub.add_parser("cover-letter", help="Render a cover letter body to .docx and PDF using your resume_bank letterhead")
     p.add_argument("--body-file", required=True, help="Plain-text letter body; blank lines separate paragraphs")

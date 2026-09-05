@@ -169,6 +169,57 @@ def cmd_apply_profile(args):
     apply_autofill.run(company=args.company, role=args.role)
 
 
+def cmd_cover_letter(args):
+    import cover_letter
+    made = cover_letter.build(args.body_file, args.company,
+                              recipient=[r for r in (args.recipient or [])],
+                              date=args.date)
+    for path in made:
+        print(f"  wrote {path}")
+    if not made:
+        print("Nothing written — check the body file exists and is not empty.")
+
+
+def cmd_clean_positions(args):
+    import clean_positions
+    clean_positions.run(dry_run=args.dry_run)
+
+
+def cmd_address_for(args):
+    import company_formats
+    pattern, why = company_formats.pattern_for(args.domain)
+    if not pattern:
+        print(f"No address built for {args.domain}: {why}")
+        print("Guessing here risks a bounce, which costs the domain's "
+              "reputation for every later email.")
+        return
+    print(f"{company_formats.address_for(args.name, args.domain, pattern)}")
+    print(f"  pattern {pattern} — {why}")
+
+
+def cmd_interview_times(args):
+    import gmail_client, interview_calendar
+    threads = gmail_client.search_messages(
+        f"newer_than:{args.days}d (interview OR \"speak\" OR \"call\")",
+        include_body=True, max_results=args.limit)
+    by_thread: dict = {}
+    for msg in threads:
+        by_thread.setdefault(msg.get("thread_id") or msg.get("id"), []).append(msg)
+    found = 0
+    for msgs in by_thread.values():
+        agreed = interview_calendar.find_agreed_time(msgs)
+        if not agreed:
+            continue
+        found += 1
+        who = msgs[0].get("from", "")[:44]
+        print(f"  {agreed}  {who}")
+        if args.create:
+            print("    ->", interview_calendar.create_event(
+                agreed, summary=f"Interview — {who}", contact=who))
+    print(f"\n{found} agreed time(s) found in the last {args.days} days."
+          + ("" if args.create else "  Re-run with --create to add them."))
+
+
 def cmd_prep(args):
     import prep_package
     if not args.url and not args.text_file:
@@ -507,6 +558,28 @@ def main():
     p.add_argument("--company", default="", help="Company, to title the answer sheet")
     p.add_argument("--role", default="", help="Role, to title the answer sheet")
     p.set_defaults(func=cmd_apply_profile)
+
+    p = sub.add_parser("cover-letter", help="Render a cover letter body to .docx and PDF using your resume_bank letterhead")
+    p.add_argument("--body-file", required=True, help="Plain-text letter body; blank lines separate paragraphs")
+    p.add_argument("--company", required=True)
+    p.add_argument("--recipient", action="append", help="Recipient address block line, repeatable")
+    p.add_argument("--date", default=None, help="Letter date (defaults to today)")
+    p.set_defaults(func=cmd_cover_letter)
+
+    p = sub.add_parser("clean-positions", help="Repair Position/Company cells the email parser mangled")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_clean_positions)
+
+    p = sub.add_parser("address-for", help="Build a work address from a name, using the convention your delivered mail proves")
+    p.add_argument("--name", required=True)
+    p.add_argument("--domain", required=True)
+    p.set_defaults(func=cmd_address_for)
+
+    p = sub.add_parser("interview-times", help="Find times agreed in email threads, optionally adding them to your calendar")
+    p.add_argument("--days", type=int, default=60)
+    p.add_argument("--limit", type=int, default=120)
+    p.add_argument("--create", action="store_true", help="Actually create the calendar events")
+    p.set_defaults(func=cmd_interview_times)
 
     p = sub.add_parser("backfill-job-descriptions", help="Fill the empty Job Description column from job links and application emails")
     p.add_argument("--dry-run", action="store_true")

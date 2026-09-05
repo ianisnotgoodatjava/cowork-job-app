@@ -178,3 +178,72 @@ def run(company: str, role: str = "", state: str = "NY") -> None:
             edgar_finder.run(company)
         except Exception as exc:
             print(f"EDGAR lookup failed: {type(exc).__name__}: {str(exc)[:80]}")
+
+
+# ---------------------------------------------------------------------------
+# The automated half.
+#
+# Everything above was reachable only by typing a command, which meant it
+# contributed nothing to the scheduled run -- the same mistake draft_cleanup
+# made by gating on a column that no longer existed. The coverage step knew
+# which applications had no draft and stopped at saying so; this turns that
+# list into names.
+#
+# Deliberately only the cheap sources run unattended. BrokerCheck answers in
+# milliseconds off one request, so a roster is affordable for every
+# broker-dealer in the gap. EDGAR has to download and parse whole filings,
+# which is minutes, so for those the plan is printed and the fetch is left
+# to be run by hand.
+
+def candidates(company: str, role: str = "", state: str = "NY",
+               top: int = 3) -> tuple[str, list[dict]]:
+    """(method, people) for one company, using only the fast sources."""
+    steps = plan(company, role)
+    method = steps[0]["method"]
+    if method != BROKERCHECK:
+        return method, []
+    firm = _is_broker_dealer(company)
+    if not firm:
+        return method, []
+    try:
+        people = people_finder.people_at_firm(firm[0], state=state, limit=100)
+    except Exception:
+        return method, []
+    band = people_finder.mid_level(people)
+    return method, (band or people)[:top]
+
+
+def worklist(rows: list[dict], limit: int = 12, state: str = "NY") -> None:
+    """Prints who to write to, for applications that still have no draft."""
+    if not rows:
+        return
+    print(f"\nWho to contact, for the {min(len(rows), limit)} most recent "
+          f"of these:\n", flush=True)
+
+    seen: set[str] = set()
+    shown = 0
+    for row in rows:
+        if shown >= limit:
+            break
+        company = (row.get("Company") or "").strip()
+        key = company.lower()
+        if not company or key in seen:
+            continue
+        seen.add(key)
+        shown += 1
+
+        try:
+            method, people = candidates(company, row.get("Position", ""), state)
+        except Exception as exc:
+            print(f"  {company[:30]:30s} lookup failed: {type(exc).__name__}")
+            continue
+
+        print(f"  {company[:30]:30s} [{method}]")
+        for person in people:
+            print(f"      {person['name'][:30]:30s} "
+                  f"{person['years']}y in industry, {person['city']}")
+        if not people:
+            step = next((s for s in plan(company, row.get("Position", ""))
+                         if s["method"] == method), None)
+            if step:
+                print(f"      {step['how'][:88]}")

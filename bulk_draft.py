@@ -139,8 +139,7 @@ def build_hook(row: dict, contact: dict) -> str:
         curiosity = (contact.get("curiosity")
                      or "have become particularly interested in how "
                         "that work is judged from the inside.")
-        return hook_forms.with_title(contact.get("name", ""), title, company,
-                                     area, curiosity, seed)
+        return hook_forms.with_title(title, company, area, curiosity, seed)
     if duty:
         clause = duty[0].lower() + duty[1:]
         return hook_forms.with_posting(company, area, clause, seed)

@@ -126,8 +126,7 @@ def _slug(text: str, limit: int = 40) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:limit] or "role"
 
 
-def _ats_answers(bank: dict, company: str, role: str, parsed: dict,
-                 category: str) -> str:
+def _ats_answers(bank: dict, company: str, role: str, parsed: dict) -> str:
     profile = bank["profile"]
     project = pick_project(bank, parsed)
     reqs = parsed.get("requirements", [])[:4]
@@ -288,7 +287,7 @@ def generate(url: str = "", row_number: int | None = None, company: str = "",
                     f"{bullet['role']}_\n  {bullet['text']}\n\n")
 
     with open(os.path.join(folder, "ats_answers.md"), "w", encoding="utf-8") as f:
-        f.write(_ats_answers(bank, company, role, parsed, category))
+        f.write(_ats_answers(bank, company, role, parsed))
 
     if cover_letter:
         with open(os.path.join(folder, "cover_letter.md"), "w", encoding="utf-8") as f:

@@ -157,3 +157,16 @@ def _sender_names(company: str) -> set[str]:
         _core(company).replace(" ", ""),
     }
     return {n for n in names if len(n) >= 4}
+
+
+def slug(company: str) -> str:
+    """Company name reduced to a comparison key: "Banc of California" ->
+    "bancofcalifornia".
+
+    Was copied into findability, draft_cleanup and targets, byte for byte in
+    two of them. Three copies of a matching rule is how they drift, and this
+    one decides whether a draft gets deleted -- so it lives next to _core and
+    normalize, which it is built from.
+    """
+    return (_core(company or "").replace(" ", "")
+            or normalize(company or "").replace(" ", ""))

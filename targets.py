@@ -22,7 +22,7 @@ import gmail_client
 import interview_signals
 import sheets
 import status as status_mod
-from company_match import _core, normalize
+from company_match import normalize, slug as company_slug
 from config import ME_RE
 from date_utils import parse_date
 
@@ -30,9 +30,6 @@ _BOUNCE_RE = re.compile(
     r"(mailer-daemon|postmaster|undeliverable|returned mail|delivery status|"
     r"could not be delivered|address rejected|invalid recipient|no such user)", re.I)
 
-
-def _slug(company: str) -> str:
-    return _core(company or "").replace(" ", "") or normalize(company or "").replace(" ", "")
 
 
 def run(days_back: int = 520, limit: int = 700) -> None:
@@ -74,7 +71,7 @@ def run(days_back: int = 520, limit: int = 700) -> None:
         # characters was dropping every short company: "ABI Research" cores
         # down to "abi", so a thread where Paul Schell had already replied was
         # reported as "nobody contacted".
-        candidates = {_slug(r["Company"]), normalize(r["Company"]).replace(" ", "")}
+        candidates = {company_slug(r["Company"]), normalize(r["Company"]).replace(" ", "")}
         candidates = {c for c in candidates if len(c) >= 3}
         hit = None
         for dom, info in contacted.items():

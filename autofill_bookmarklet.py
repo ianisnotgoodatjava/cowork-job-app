@@ -59,6 +59,20 @@ MATCHERS = [
 ]
 
 
+# Demographic questions are the applicant's to answer, and a filler that
+# walks the page will happily put a city into an ethnicity field -- which is
+# exactly what the first version did on KBRA's Greenhouse form.
+EEO_FIELDS = ("gender", "ethnicity", "race", "hispanic", "latino", "veteran",
+              "disability", "sexual orientation", "pronoun")
+
+# Consent is given, not filled in. On KBRA's form the privacy-acknowledgement
+# field was matched by "state" -- as a substring of "Privacy Statement" -- and
+# answered "NY". Agreeing to a privacy policy on someone's behalf is not a
+# typing shortcut, so these are refused outright as well.
+CONSENT_FIELDS = ("acknowledge", "consent", "privacy", "terms", "i agree",
+                  "certify", "authorize the", "policy")
+
+
 def _js_profile() -> dict:
     """{profile key: value} for keys that actually have a value."""
     fields = apply_autofill.field_map()
@@ -84,7 +98,8 @@ def build() -> str:
             if(l)s.push(l.innerText);}
   var p=el.closest('label'); if(p)s.push(p.innerText);
   var w=el.closest('div,fieldset');
-  if(w){var t=w.querySelector('label,legend'); if(t)s.push(t.innerText);}
+  if(w&&w.querySelectorAll('input,textarea,select').length===1){
+   var t=w.querySelector('label,legend'); if(t)s.push(t.innerText);}
   return s.join(' ').toLowerCase().replace(/\\s+/g,' ');
  }
  function set(el,v){
@@ -105,7 +120,7 @@ def build() -> str:
   for(var j=0;j<M.length;j++){
    var keys=M[j][0], key=M[j][1];
    for(var k=0;k<keys.length;k++){
-    if(L.indexOf(keys[k])>-1&&P[key]){set(el,P[key]);n++;return;}
+    if(new RegExp('\\\\b'+keys[k]+'\\\\b').test(L)&&P[key]){set(el,P[key]);n++;return;}
    }
   }
  });
@@ -114,7 +129,8 @@ def build() -> str:
 })();
 """ % {"profile": json.dumps(profile),
        "matchers": json.dumps(matchers),
-       "never": json.dumps(list(apply_autofill.NEVER_FILL))}
+       "never": json.dumps(list(apply_autofill.NEVER_FILL) + list(EEO_FIELDS)
+                                + list(CONSENT_FIELDS))}
     return "javascript:" + "".join(line.strip() for line in js.splitlines())
 
 

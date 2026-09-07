@@ -11,14 +11,18 @@ import re
 from email.utils import parsedate_to_datetime
 
 import gmail_client
-from googleapiclient.discovery import build
-from google_auth import get_credentials
 
 from config import ME_RE as _ME, NETWORKING_KEYWORDS
 
 
 def _svc():
-    return build("gmail", "v1", credentials=get_credentials())
+    """The shared, cached Gmail client.
+
+    Built a fresh one per call before, which re-read token.json and refetched
+    the discovery document every time -- and draft_cleanup calls it once per
+    sweep inside a pipeline that already holds a client.
+    """
+    return gmail_client._service()
 
 
 def _thread_has_reply(svc, thread_id: str) -> bool:

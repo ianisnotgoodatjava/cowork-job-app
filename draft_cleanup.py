@@ -27,23 +27,23 @@ from email.utils import parsedate_to_datetime
 import gmail_client
 import sheets
 import status as status_mod
-from company_match import _core, normalize
+from company_match import slug as company_slug
 from date_utils import parse_date
 from link_finder import CONFIRMATION_PHRASES
 from rejection_scanner import _is_real_rejection
-from googleapiclient.discovery import build
-from google_auth import get_credentials
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
 def _svc():
-    return build("gmail", "v1", credentials=get_credentials())
+    """The shared, cached Gmail client.
 
+    Built a fresh one per call before, which re-read token.json and refetched
+    the discovery document every time -- and draft_cleanup calls it once per
+    sweep inside a pipeline that already holds a client.
+    """
+    return gmail_client._service()
 
-def _slug(company: str) -> str:
-    return (_core(company or "").replace(" ", "")
-            or normalize(company or "").replace(" ", ""))
 
 
 def _drafts(svc=None) -> list[dict]:
@@ -97,7 +97,7 @@ def dead_companies() -> list[str]:
         company = (row.get("Company") or "").strip()
         if not company:
             continue
-        slug = _slug(company)
+        slug = company_slug(company)
         state = status_mod.normalize(row.get("Status", ""))
         if status_mod.is_open(row.get("Status", "")):
             still_open.add(slug)
@@ -159,7 +159,7 @@ def _confirmations_by_company(days_back: int = 120) -> dict:
         when = _latest([msg])
         if when is None:
             continue
-        slug = _slug(parsed[0])
+        slug = company_slug(parsed[0])
         if slug and (slug not in newest or when > newest[slug]):
             newest[slug] = when
     return newest
@@ -187,7 +187,7 @@ def has_newer_application(company: str, confirmations: dict | None = None,
     """
     if confirmations is None:
         confirmations = _confirmations_by_company(days_back)
-    want = _slug(company)
+    want = company_slug(company)
 
     sent = None
     for slug, when in confirmations.items():
@@ -200,7 +200,7 @@ def has_newer_application(company: str, confirmations: dict | None = None,
         rows = sheets.list_rows()
     applied = [parse_date(row.get("Applied Draes", ""))
                for row in rows
-               if _same_company(_slug(row.get("Company") or ""), want)]
+               if _same_company(company_slug(row.get("Company") or ""), want)]
     applied = [d for d in applied if d]
     if not applied:
         return True
@@ -235,7 +235,7 @@ def run(dry_run: bool = False) -> None:
 
     removed = 0
     for company in sorted(dead):
-        slug = _slug(company)
+        slug = company_slug(company)
         if len(slug) < 3:
             continue
         for draft in list(drafts):

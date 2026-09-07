@@ -30,7 +30,7 @@ import os
 import gmail_client
 import sheets
 import status as status_mod
-from company_match import _core, _is_vendor_domain, normalize
+from company_match import _is_vendor_domain, slug as company_slug
 from date_utils import parse_date
 
 CACHE = os.path.join("logs", "address_patterns.json")
@@ -51,10 +51,6 @@ def _domain_label(domain: str) -> str:
     """'1823.partners' -> '1823'; 'websterbank.com' -> 'websterbank'."""
     return domain.split(".")[0].lower()
 
-
-def _slug(company: str) -> str:
-    return (_core(company or "").replace(" ", "")
-            or normalize(company or "").replace(" ", ""))
 
 
 def _domain_matches(slug: str, domain: str) -> bool:
@@ -104,7 +100,7 @@ def classify(row: dict, patterns: dict) -> tuple[str, str]:
         if name in lower:
             return "PUBLISHES", "analytical/research contacts are published"
 
-    slug = _slug(company)
+    slug = company_slug(company)
     for domain, hist in patterns.items():
         if not _domain_matches(slug, domain):
             continue
@@ -184,7 +180,7 @@ def coverage(days_back: int | None = None) -> tuple[list, list]:
     have, missing = [], []
     for row in rows:
         company = (row.get("Company") or "").strip()
-        slug = _slug(company)
+        slug = company_slug(company)
         hit = any(_domain_matches(slug, d) or slug == d for d in domains)
         if not hit and len(company) >= 4:
             hit = any(company.lower() in s for s in subjects)

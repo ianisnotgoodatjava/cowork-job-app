@@ -74,11 +74,12 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         step(enrich.run, limit=60, dry_run=False)
 
     print("\n[5/7] Researching postings and drafting outreach")
-    if not (os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        print("  skipped — no ANTHROPIC_API_KEY set.\n"
-              "  Everything else in this pass ran. Add the key to .env to turn\n"
-              "  on posting lookup and drafted outreach.")
+    import auto_draft as _ad
+    if not (_ad._have_api_key() or _ad._cli_ready()):
+        print("  skipped — no way to reach Claude.\n"
+              "  Everything else in this pass ran. Either run `claude` and\n"
+              "  `/login` (uses the existing subscription, no extra cost), or\n"
+              "  put ANTHROPIC_API_KEY in .env.")
     elif not draft:
         print("  skipped — drafting disabled for this pass")
     else:

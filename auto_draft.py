@@ -184,6 +184,56 @@ def _parse(text: str) -> dict:
     return out
 
 
+def _via_cli(system: str, prompt: str, timeout: int = 420) -> str:
+    """Run the same request through the `claude` CLI instead of the API.
+
+    The API path needs ANTHROPIC_API_KEY, which is a second bill on top of a
+    Claude subscription that is already paid for. The CLI is signed in to
+    that subscription and can be driven headlessly, so the only difference
+    is which credential does the work -- the prompt, the parsing, the
+    address check and the style gate are all unchanged.
+
+    WebSearch has to be granted explicitly. Without --allowed-tools the
+    headless run has no search, and this whole step exists to look people up.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["claude", "-p", prompt,
+         "--append-system-prompt", system,
+         "--allowed-tools", "WebSearch,WebFetch",
+         "--model", MODEL],
+        capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()[:200]
+        if "not logged in" in detail.lower() or "/login" in detail:
+            raise SystemExit(
+                "The claude CLI is installed but not signed in.\n"
+                "Run `claude` in a terminal, then `/login`, and this step\n"
+                "works on your existing subscription with no API key.")
+        raise RuntimeError(f"claude CLI failed: {detail}")
+    return result.stdout
+
+
+def _have_api_key() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY")
+                or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+
+
+def _cli_ready() -> bool:
+    """Whether the claude CLI exists and is signed in."""
+    import shutil
+    import subprocess
+    if not shutil.which("claude"):
+        return False
+    try:
+        out = subprocess.run(["claude", "-p", "ok"], capture_output=True,
+                             text=True, timeout=60)
+    except Exception:
+        return False
+    return "not logged in" not in (out.stdout + out.stderr).lower()
+
+
 def draft_for_row(client, row: dict) -> dict:
     """Researches and writes one email. Returns the parsed fields."""
     company = (row.get("Company") or "").strip()
@@ -216,6 +266,15 @@ def draft_for_row(client, row: dict) -> dict:
         part for part in (measured, examples) if part) or
         'He asks for 15-20 minutes and signs off "Best regards, Ian Liu".')
 
+    # No key means no client, and the CLI does the same work on the
+    # subscription instead. Everything after this point is identical either
+    # way: same parse, same address check, same style gate.
+    if client is None:
+        text = _via_cli(system, prompt)
+        fields = _parse(text)
+        fields["_raw"] = text
+        return fields
+
     # Streaming because web search plus a full email routinely runs long
     # enough to trip the non-streaming HTTP timeout.
     with client.messages.stream(
@@ -246,23 +305,29 @@ def draft_for_row(client, row: dict) -> dict:
 def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         out_dir: str = OUT_DIR, create_drafts: bool = False,
         new_only: bool = False, write_link: bool = True) -> None:
-    try:
-        import anthropic
-    except ImportError:
-        raise SystemExit("pip install anthropic")
-
-    if not (os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+    # Either credential will do. The API bills separately; the CLI runs on
+    # the Claude subscription already being paid for, so it is tried second
+    # only because the API is faster when a key exists.
+    client = None
+    if _have_api_key():
+        try:
+            import anthropic
+        except ImportError:
+            raise SystemExit("pip install anthropic")
+        client = anthropic.Anthropic()
+    elif not _cli_ready():
         raise SystemExit(
-            "No Anthropic credentials. Set ANTHROPIC_API_KEY in .env or the\n"
-            "environment. This is the only step that costs money — roughly a\n"
-            "few cents per email, mostly the web searches."
+            "No way to reach Claude, so the research step cannot run.\n"
+            "\n"
+            "Either:\n"
+            "  run `claude` in a terminal and then `/login`  (no extra cost —\n"
+            "  uses the subscription you already pay for), or\n"
+            "  put ANTHROPIC_API_KEY in .env  (a few cents per application)."
         )
 
     import batch_outreach
     import findability
 
-    client = anthropic.Anthropic()
     rows = [r for r in sheets.list_rows()
             if status_mod.is_open(r.get("Status", ""))]
     done = _done()

@@ -59,6 +59,7 @@ _CONTENT = """
 const P = %(profile)s;
 const M = %(matchers)s;
 const NEVER = %(never)s;
+%(rules)s
 
 function label(el){
  const s=[el.name,el.id,el.placeholder,el.getAttribute('aria-label')||''];
@@ -87,6 +88,9 @@ function fill(){
   const L=label(el);
   if(!L) return;
   if(NEVER.some(k=>L.includes(k))) return;      // refused outright
+  let hit=null;
+  for(const [re,val] of RULES){ if(re.test(L)){ hit=val; break; } }
+  if(hit!==null){ setValue(el,hit); n++; return; }
   let best=null,bestLen=0;
   for(const [keys,key] of M){
    for(const k of keys){
@@ -145,6 +149,7 @@ def build(out_dir: str = OUT_DIR) -> str:
     with open(os.path.join(out_dir, "content.js"), "w") as f:
         f.write(_CONTENT % {"profile": json.dumps(profile, indent=1),
                             "matchers": json.dumps(matchers),
+                            "rules": bm.RULES_JS,
                             "never": json.dumps(never)})
     return out_dir
 

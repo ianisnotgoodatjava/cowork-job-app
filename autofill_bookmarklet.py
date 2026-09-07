@@ -64,8 +64,7 @@ MATCHERS = [
 # Demographic questions are the applicant's to answer, and a filler that
 # walks the page will happily put a city into an ethnicity field -- which is
 # exactly what the first version did on KBRA's Greenhouse form.
-EEO_FIELDS = ("gender", "veteran", "disability", "sexual orientation",
-              "pronoun")
+EEO_FIELDS = ("pronoun",)
 
 # Consent is given, not filled in. On KBRA's form the privacy-acknowledgement
 # field was matched by "state" -- as a substring of "Privacy Statement" -- and
@@ -74,22 +73,54 @@ EEO_FIELDS = ("gender", "veteran", "disability", "sexual orientation",
 CONSENT_FIELDS = ("acknowledge", "consent", "privacy", "terms", "i agree",
                   "certify", "authorize the", "policy")
 
-# Work authorization and sponsorship are refused, and this is the one place
-# where refusing is the whole point rather than a limitation.
+# Work authorization and sponsorship are answered by RULES below, not by
+# keyword length, because length is the wrong tiebreaker. KBRA's sponsorship
+# question reads "Do you require immigration sponsorship to attain or
+# maintain your employment eligibility... sponsorship by your employer" -- it
+# contains "employer", "sponsorship" and "work authorization" at once.
+# First-match answered it "REDACTED"; longest-match answered it "Yes", the one
+# answer that has a US citizen filtered out automatically.
 #
-# Keyword matching cannot separate them. KBRA's sponsorship question reads
-# "Do you require immigration sponsorship to attain or maintain your
-# employment eligibility... sponsorship by your employer" -- it contains
-# "employer", "sponsorship" and "work authorization" at once. First-match
-# answered it "REDACTED"; longest-match answered it "Yes", because "work
-# authorization" is the longer phrase. "Yes" to "do you require
-# sponsorship" is precisely the answer that has a US citizen filtered out
-# by a rule before anyone reads the application.
+# Precedence by meaning fixes it: anything mentioning sponsorship or a visa
+# is the sponsorship question and answers No, and only what is left over can
+# be the authorization question and answer Yes.
+DECISIVE_FIELDS = ()
+
+
+# Answers that are decided by meaning, or computed when the page opens.
+# Checked in order, before the keyword matchers, and the order is the point:
+# sponsorship is tested before authorization because its question contains
+# both phrases.
 #
-# Two dropdowns, four seconds, and the cost of getting them wrong is the
-# whole application. They stay manual.
-DECISIVE_FIELDS = ("sponsor", "visa", "authorized", "authorised",
-                   "work authorization", "citizenship", "legally")
+# Three of these cannot be baked in. A start date written today is wrong
+# tomorrow; the salary depends on where the job is; and the disability
+# question is Yes only when its own list of conditions names ADHD, which
+# differs by employer. All three are evaluated against the live page.
+RULES_JS = """
+ var _d=new Date(Date.now()+14*864e5);
+ while(_d.getDay()!==1)_d.setDate(_d.getDate()+1);
+ var START=_d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+ var PAGE=(document.body.innerText||'').toLowerCase();
+ var MAJOR=['new york','new york city','nyc','san francisco','boston','chicago',
+            'los angeles','washington, d.c.','washington dc','seattle','london',
+            'hong kong','singapore','dublin','toronto','jersey city','stamford'];
+ var SALARY=MAJOR.some(function(c){return PAGE.indexOf(c)>-1;})?'70000':'60000';
+ var ADHD=/adhd|attention deficit/.test(PAGE);
+ var RULES=[
+  [/sponsor|visa/,                      'No'],
+  [/authoriz|authoris|legally/,         'Yes'],
+  [/relocat/,                           'Yes'],
+  [/referr|refer by|referred by/,       'No'],
+  [/start date|how soon|availab|notice period/, START],
+  [/salary|compensation|expected pay|base pay/, SALARY],
+  [/disabilit/,                         ADHD?'Yes':'No'],
+  [/veteran/,                           'I am not a protected veteran'],
+  [/hispanic|latino/,                   'No'],
+  [/gender/,                            'Male'],
+  [/sexual orientation/,                'Heterosexual / straight'],
+  [/citizenship/,                       'United States'],
+ ];
+"""
 
 
 def _js_profile() -> dict:
@@ -128,6 +159,7 @@ def build() -> str:
   el.dispatchEvent(new Event('input',{bubbles:true}));
   el.dispatchEvent(new Event('change',{bubbles:true}));
  }
+ %(rules)s
  var n=0, skipped=0;
  document.querySelectorAll('input,textarea').forEach(function(el){
   if(el.type==='hidden'||el.type==='file'||el.type==='password')return;
@@ -136,6 +168,9 @@ def build() -> str:
   var L=label(el);
   if(!L)return;
   for(var i=0;i<NEVER.length;i++){if(L.indexOf(NEVER[i])>-1){skipped++;return;}}
+  var hit=null;
+  for(var r=0;r<RULES.length;r++){ if(RULES[r][0].test(L)){hit=RULES[r][1];break;} }
+  if(hit!==null){ set(el,hit); n++; return; }
   var best=null,bestLen=0;
   for(var j=0;j<M.length;j++){
    var keys=M[j][0], key=M[j][1];
@@ -153,6 +188,7 @@ def build() -> str:
 })();
 """ % {"profile": json.dumps(profile),
        "matchers": json.dumps(matchers),
+       "rules": RULES_JS,
        "never": json.dumps(list(apply_autofill.NEVER_FILL) + list(EEO_FIELDS)
                                 + list(CONSENT_FIELDS)
                                 + list(DECISIVE_FIELDS))}

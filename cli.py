@@ -164,6 +164,11 @@ def cmd_enable_calendar(args):
     print("Granted." if google_auth.has_calendar_access() else "Not granted — try again.")
 
 
+def cmd_autofill_link(args):
+    import autofill_bookmarklet
+    autofill_bookmarklet.run()
+
+
 def cmd_apply_profile(args):
     import apply_autofill
     apply_autofill.run(company=args.company, role=args.role)
@@ -577,6 +582,9 @@ def main():
     p.add_argument("--no-resume", action="store_true", help="Skip the tailored PDF resume")
     p.add_argument("--no-sheet", action="store_true", help="Don't write anything to the sheet")
     p.set_defaults(func=cmd_prep)
+
+    p = sub.add_parser("autofill-link", help="Build a bookmarklet that fills a Greenhouse/Lever application form from your profile — it never submits")
+    p.set_defaults(func=cmd_autofill_link)
 
     p = sub.add_parser("apply-profile", help="Export your autofill field map and the standard application answers")
     p.add_argument("--company", default="", help="Company, to title the answer sheet")

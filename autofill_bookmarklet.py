@@ -43,27 +43,29 @@ MATCHERS = [
     (("zip", "postal"), "address_zip"),
     (("country",), "address_country"),
     (("linkedin",), "linkedin"),
-    (("github", "portfolio", "website"), "website"),
+    (("github", "portfolio", "personal website"), "website"),
     (("school", "university", "college", "institution"), "school"),
     (("degree",), "degree"),
     (("discipline", "major", "field of study"), "major"),
-    (("graduation", "grad date", "end date"), "grad_date"),
+    (("graduation", "grad date", "end date"), "education_end"),
     (("gpa",), "gpa"),
-    (("current company", "employer"), "current_company"),
+    (("current employer", "current company", "employer"), "current_employer"),
     (("current title", "job title", "position title"), "current_title"),
     (("salary", "compensation", "expected pay"), "salary_expectation"),
     (("start date", "available", "notice"), "start_date"),
-    (("authorized", "authorisation", "work auth", "legally"), "work_auth"),
-    (("sponsor", "visa"), "sponsorship"),
-    (("pronoun",), "pronouns"),
+    # Voluntary self-identification, filled only because it was given
+    # explicitly. Gender, veteran and disability stay refused -- those have
+    # not been stated, and "decline" is a choice to make rather than a
+    # default to paste.
+    (("race", "ethnicity"), "race_ethnicity"),
 ]
 
 
 # Demographic questions are the applicant's to answer, and a filler that
 # walks the page will happily put a city into an ethnicity field -- which is
 # exactly what the first version did on KBRA's Greenhouse form.
-EEO_FIELDS = ("gender", "ethnicity", "race", "hispanic", "latino", "veteran",
-              "disability", "sexual orientation", "pronoun")
+EEO_FIELDS = ("gender", "veteran", "disability", "sexual orientation",
+              "pronoun")
 
 # Consent is given, not filled in. On KBRA's form the privacy-acknowledgement
 # field was matched by "state" -- as a substring of "Privacy Statement" -- and
@@ -71,6 +73,23 @@ EEO_FIELDS = ("gender", "ethnicity", "race", "hispanic", "latino", "veteran",
 # typing shortcut, so these are refused outright as well.
 CONSENT_FIELDS = ("acknowledge", "consent", "privacy", "terms", "i agree",
                   "certify", "authorize the", "policy")
+
+# Work authorization and sponsorship are refused, and this is the one place
+# where refusing is the whole point rather than a limitation.
+#
+# Keyword matching cannot separate them. KBRA's sponsorship question reads
+# "Do you require immigration sponsorship to attain or maintain your
+# employment eligibility... sponsorship by your employer" -- it contains
+# "employer", "sponsorship" and "work authorization" at once. First-match
+# answered it "REDACTED"; longest-match answered it "Yes", because "work
+# authorization" is the longer phrase. "Yes" to "do you require
+# sponsorship" is precisely the answer that has a US citizen filtered out
+# by a rule before anyone reads the application.
+#
+# Two dropdowns, four seconds, and the cost of getting them wrong is the
+# whole application. They stay manual.
+DECISIVE_FIELDS = ("sponsor", "visa", "authorized", "authorised",
+                   "work authorization", "citizenship", "legally")
 
 
 def _js_profile() -> dict:
@@ -117,20 +136,26 @@ def build() -> str:
   var L=label(el);
   if(!L)return;
   for(var i=0;i<NEVER.length;i++){if(L.indexOf(NEVER[i])>-1){skipped++;return;}}
+  var best=null,bestLen=0;
   for(var j=0;j<M.length;j++){
    var keys=M[j][0], key=M[j][1];
    for(var k=0;k<keys.length;k++){
-    if(new RegExp('\\\\b'+keys[k]+'\\\\b').test(L)&&P[key]){set(el,P[key]);n++;return;}
+    if(P[key]&&new RegExp('\\\\b'+keys[k]+'\\\\b').test(L)&&keys[k].length>bestLen){best=key;bestLen=keys[k].length;}
    }
   }
+  if(best){set(el,P[best]);n++;}
  });
- alert('Filled '+n+' field(s).'+(skipped?' Skipped '+skipped+' sensitive.':'')
-   +'\\nNothing was submitted - review the form, then submit it yourself.');
+ alert('Filled '+n+' field(s). Left '+skipped+' for you.'
+   +'\\n\\nAnswer work authorization (Yes) and sponsorship (No) yourself -'
+   +'\\nkeyword matching cannot tell those two questions apart, and a wrong'
+   +'\\nanswer there filters the application out automatically.'
+   +'\\n\\nNothing was submitted.');
 })();
 """ % {"profile": json.dumps(profile),
        "matchers": json.dumps(matchers),
        "never": json.dumps(list(apply_autofill.NEVER_FILL) + list(EEO_FIELDS)
-                                + list(CONSENT_FIELDS))}
+                                + list(CONSENT_FIELDS)
+                                + list(DECISIVE_FIELDS))}
     return "javascript:" + "".join(line.strip() for line in js.splitlines())
 
 

@@ -164,6 +164,11 @@ def cmd_enable_calendar(args):
     print("Granted." if google_auth.has_calendar_access() else "Not granted — try again.")
 
 
+def cmd_autofill_extension(args):
+    import autofill_extension
+    autofill_extension.run()
+
+
 def cmd_autofill_link(args):
     import autofill_bookmarklet
     autofill_bookmarklet.run()
@@ -582,6 +587,9 @@ def main():
     p.add_argument("--no-resume", action="store_true", help="Skip the tailored PDF resume")
     p.add_argument("--no-sheet", action="store_true", help="Don't write anything to the sheet")
     p.set_defaults(func=cmd_prep)
+
+    p = sub.add_parser("autofill-extension", help="Build a Chrome extension that fills Greenhouse/Lever forms automatically on open — never submits")
+    p.set_defaults(func=cmd_autofill_extension)
 
     p = sub.add_parser("autofill-link", help="Build a bookmarklet that fills a Greenhouse/Lever application form from your profile — it never submits")
     p.set_defaults(func=cmd_autofill_link)

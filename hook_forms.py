@@ -39,9 +39,16 @@ def _trim_title(title: str, company: str) -> str:
                   (title or "").strip(), flags=re.I).strip(" ,")
 
 
-def with_title(name: str, title: str, company: str, area: str,
+def with_title(title: str, company: str, area: str,
                curiosity: str, seed: str) -> str:
-    """Strongest form: their actual role is known."""
+    """Strongest form: their actual role is known.
+
+    Took the contact's name as its first argument and never used it -- the
+    greeting is built by the caller, and every opening here is phrased from
+    the title and company. Dropped rather than left, because a parameter a
+    caller carefully supplies and the body ignores reads as a bug waiting to
+    be "fixed" by using it.
+    """
     # Six, not three. With three the drafts clustered onto one opening and
     # uniqueness fell to 23% against Ian's 39% — the pool has to be roughly
     # as wide as the number of drafts being written before the seeded pick

@@ -45,8 +45,7 @@ def _svc():
     return gmail_client._service()
 
 
-
-def _drafts(svc=None) -> list[dict]:
+def _drafts() -> list[dict]:
     """Every draft with a recipient: {id, addr, domain, subject}.
 
     The listing itself lives in gmail_client.draft_headers, which batches the
@@ -229,7 +228,7 @@ def run(dry_run: bool = False) -> None:
     print()
 
     svc = _svc()
-    drafts = _drafts(svc)
+    drafts = _drafts()
     print(f"{len(dead)} company/companies fully rejected; "
           f"{len(drafts)} draft(s) with a recipient.\n", flush=True)
 

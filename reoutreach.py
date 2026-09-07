@@ -57,7 +57,14 @@ def _company_domain(msg: dict) -> str:
 
 
 def scan(days_back: int = 520, min_silent_days: int = 21,
-         limit: int = 600, dry_run: bool = True, use_calendar: bool = True) -> list[dict]:
+         limit: int = 600, use_calendar: bool = True) -> list[dict]:
+    """Warm leads that went quiet. Read-only: reports, writes nothing.
+
+    Took a dry_run flag and ignored it, which is worse than not having one --
+    a caller reading the signature would reasonably believe passing
+    dry_run=False makes it write. It never wrote anything, and no caller
+    passed the flag.
+    """
     query = f"in:sent newer_than:{days_back}d {NETWORKING_KEYWORDS}"
     print(f"Searching Gmail: {query}\n", flush=True)
     sent = gmail_client.search_messages(query, max_results=limit)

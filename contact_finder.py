@@ -64,7 +64,7 @@ _CREDENTIALS_RE = re.compile(
     r"Esq|Jr|Sr|III|II)\b\.?", re.I)
 
 
-def _pretty(name: str, addr: str) -> str:
+def _pretty(name: str) -> str:
     name = (name or "").strip().strip('"')
     if "," in name and name.count(",") == 1:
         last, first = [p.strip() for p in name.split(",")]
@@ -167,7 +167,7 @@ def harvest(days_back: int = 700, max_results: int = 6000,
                     rec["delivered"] = True
                 rec["seen"] += 1
                 if name and not rec["name"]:
-                    rec["name"] = _pretty(name, addr)
+                    rec["name"] = _pretty(name)
                 if outbound and is_recipient:
                     rec["wrote_to"] = True
                 if not outbound and not is_recipient:

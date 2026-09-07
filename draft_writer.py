@@ -330,7 +330,7 @@ def run(create_drafts: bool = False, contacts_file: str = CONTACTS_FILE) -> None
             if c.get("curiosity") and c.get("title"):
                 import hook_forms
                 c["hook"] = hook_forms.with_title(
-                    c["name"], c["title"], display_company(row.get("Company", "")),
+                    c["title"], display_company(row.get("Company", "")),
                     subject_topic(row.get("Position", "")).lower(),
                     c["curiosity"], c.get("email", c["name"]))
         paths = write(row, contacts, create_drafts=create_drafts,

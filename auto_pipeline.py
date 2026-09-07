@@ -80,6 +80,13 @@ def run(days_back: int = 30, dry_run: bool = False) -> None:
     print("\n[1/6] New applications from Gmail")
     _step(app_scanner.scan, days_back=days_back, dry_run=dry_run)
 
+    print("\n[1a/6] Outreach for the applications just logged")
+    # Immediately after the sheet learns about an application, not on a later
+    # pass: the whole point is that applying and reaching out are one step.
+    # Finds the team, ranks by desk and seniority, and drafts to three.
+    import auto_outreach
+    _step(auto_outreach.run, limit=10, dry_run=dry_run)
+
     print("\n[1b/6] Job Link backfill")
     # Runs before the Job Description backfill (step 4) so a link found here
     # is available as that step's first, best source the same day.

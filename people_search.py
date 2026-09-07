@@ -74,8 +74,15 @@ _BAND_RANK = {BAND_TARGET: 0, BAND_UNKNOWN: 1, BAND_SENIOR: 2, BAND_JUNIOR: 3}
 
 def _desk_score(title: str, role: str) -> int:
     """Shared meaningful words between a published title and the job applied to."""
+    # Words that appear in every other title and prove nothing about the desk.
+    # Without "internal" here, an Internal Audit VP scored as a match for an
+    # Internal Investment Consultant role -- two unrelated jobs sharing an
+    # adjective.
     stop = {"analyst", "associate", "senior", "junior", "the", "and", "of",
-            "vice", "president", "director", "manager", "global", "group"}
+            "vice", "president", "director", "manager", "global", "group",
+            "internal", "external", "head", "lead", "officer", "chief",
+            "consultant", "specialist", "professional", "executive",
+            "business", "corporate", "general", "regional", "americas"}
     want = {w for w in re.findall(r"[a-z]+", (role or "").lower())
             if len(w) > 3 and w not in stop}
     have = {w for w in re.findall(r"[a-z]+", (title or "").lower())
@@ -83,14 +90,25 @@ def _desk_score(title: str, role: str) -> int:
     return len(want & have)
 
 
-def rank(candidates: list[dict], role: str = "") -> list[dict]:
-    """Best person first: desk match, then seniority band, then title present."""
+def rank(candidates: list[dict], role: str = "",
+         drop_out_of_band: bool = False) -> list[dict]:
+    """Best person first: seniority band, then desk match, then title present.
+
+    Band is checked before desk match, not after. Sorting on desk match first
+    put "MD, Chief Investment Officer" at the top of a list for an Investment
+    Consultant role -- a good topic match and precisely the seniority that
+    does not answer an unsolicited note. A Managing Director on the right desk
+    is still the wrong person to write to.
+    """
     for c in candidates:
         c["band"] = band(c.get("title", ""))
         c["desk_score"] = _desk_score(c.get("title", ""), role)
+    if drop_out_of_band:
+        candidates = [c for c in candidates
+                      if c["band"] in (BAND_TARGET, BAND_UNKNOWN)]
     return sorted(
         candidates,
-        key=lambda c: (-c["desk_score"], _BAND_RANK.get(c["band"], 9),
+        key=lambda c: (_BAND_RANK.get(c["band"], 9), -c["desk_score"],
                        not c.get("title")))
 
 
@@ -133,6 +151,24 @@ def find(company: str, role: str = "", domain: str = "", state: str = "NY",
     except Exception as exc:
         notes.append(f"FINRA unavailable: {type(exc).__name__}")
 
+    # Org chart, for everything FINRA cannot see -- and for the job titles it
+    # never carries even when it can. Run always, not as a fallback: a FINRA
+    # name with no title cannot be matched to a desk.
+    try:
+        import team_pages
+        published = team_pages.people(company)
+        if published:
+            notes.append(f"org chart: {len(published)} published name(s)")
+            titled = {p["name"].lower(): p["title"] for p in published}
+            for person in found:
+                if not person["title"]:
+                    person["title"] = titled.get(person["name"].lower(), "")
+            found += published
+        elif not found:
+            notes.append("no published org chart either")
+    except Exception as exc:
+        notes.append(f"org chart unavailable: {type(exc).__name__}")
+
     seen, unique = set(), []
     for person in found:
         key = person["name"].lower()
@@ -148,7 +184,7 @@ def find(company: str, role: str = "", domain: str = "", state: str = "NY",
     if already:
         notes.append(f"{len(already)} already written to in the last year")
 
-    ranked = rank(fresh, role)
+    ranked = rank(fresh, role, drop_out_of_band=True)
     unreachable = [c for c in ranked if not c.get("email")]
     reachable = [c for c in ranked if c.get("email")]
     return {

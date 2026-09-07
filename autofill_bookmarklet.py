@@ -109,7 +109,7 @@ RULES_JS = """
  var RULES=[
   [/sponsor|visa/,                      'No'],
   [/authoriz|authoris|legally/,         'Yes'],
-  [/relocat/,                           'Yes'],
+  [/relocat|willing to work|willing to commute|able to commute|willing to be based|willing to travel/, 'Yes'],
   [/referr|refer by|referred by/,       'No'],
   [/start date|how soon|availab|notice period/, START],
   [/salary|compensation|expected pay|base pay/, SALARY],

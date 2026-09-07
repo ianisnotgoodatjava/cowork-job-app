@@ -169,6 +169,11 @@ def cmd_apply_profile(args):
     apply_autofill.run(company=args.company, role=args.role)
 
 
+def cmd_auto_outreach(args):
+    import auto_outreach
+    auto_outreach.run(limit=args.limit, want=args.contacts, dry_run=args.dry_run)
+
+
 def cmd_find_people(args):
     import people_search
     people_search.run(args.company, role=args.role, domain=args.domain,
@@ -577,6 +582,12 @@ def main():
     p.add_argument("--company", default="", help="Company, to title the answer sheet")
     p.add_argument("--role", default="", help="Role, to title the answer sheet")
     p.set_defaults(func=cmd_apply_profile)
+
+    p = sub.add_parser("auto-outreach", help="Find a team and draft to 3 of them for each application with no contact yet")
+    p.add_argument("--limit", type=int, default=10, help="Applications to work through")
+    p.add_argument("--contacts", type=int, default=3, help="Contacts per application")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_auto_outreach)
 
     p = sub.add_parser("find-people", help="Rank reachable contacts at a company: desk match, VP/Director band, address, minus anyone emailed this year")
     p.add_argument("--company", required=True)

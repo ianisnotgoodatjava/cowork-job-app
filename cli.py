@@ -149,6 +149,11 @@ def cmd_train_rejection_model(args):
     rejection_model.train(days_back=args.days)
 
 
+def cmd_open_loops(args):
+    import open_loops
+    open_loops.run(days_back=args.days)
+
+
 def cmd_follow_ups(args):
     follow_up.scan(days_back=args.days, min_age_days=args.min_age)
 
@@ -782,6 +787,10 @@ def main():
     p = sub.add_parser("train-rejection-model", help="Retrain the learned rejection classifier from your mail")
     p.add_argument("--days", type=int, default=500)
     p.set_defaults(func=cmd_train_rejection_model)
+
+    p = sub.add_parser("open-loops", help="Threads where someone asked you something and it is still unanswered — the ball is in your court")
+    p.add_argument("--days", type=int, default=90)
+    p.set_defaults(func=cmd_open_loops)
 
     p = sub.add_parser("follow-ups", help="List outreach emails that never got a reply")
     p.add_argument("--days", type=int, default=180)

@@ -30,6 +30,7 @@ expensive way in this repo:
 import json
 import os
 import re
+import time
 
 import sheets
 import status as status_mod
@@ -234,6 +235,41 @@ def _cli_ready() -> bool:
     return "not logged in" not in (out.stdout + out.stderr).lower()
 
 
+def _stream_with_retry(client, max_attempts: int = 6, **kwargs):
+    """Runs client.messages.stream(**kwargs), retrying on 429s.
+
+    A batch of 10 sequential single-row requests against the subscription
+    (OAuth) credential hit RateLimitError on every single one — that
+    credential's per-minute limit is far tighter than a metered API key's,
+    and nothing here was slowing down between requests to respect it. This
+    honors the API's Retry-After header when it sends one, and otherwise
+    backs off exponentially, so a batch degrades to "slower" instead of
+    "produces nothing."
+    """
+    import anthropic
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with client.messages.stream(**kwargs) as stream:
+                return stream.get_final_message()
+        except anthropic.RateLimitError as exc:
+            if attempt == max_attempts:
+                raise
+            retry_after = None
+            response = getattr(exc, "response", None)
+            if response is not None:
+                header = response.headers.get("retry-after")
+                if header:
+                    try:
+                        retry_after = float(header)
+                    except ValueError:
+                        pass
+            wait = retry_after or min(60, 5 * 2 ** (attempt - 1))
+            print(f"    rate limited — waiting {wait:.0f}s "
+                  f"(attempt {attempt}/{max_attempts})", flush=True)
+            time.sleep(wait)
+
+
 def draft_for_row(client, row: dict) -> dict:
     """Researches and writes one email. Returns the parsed fields."""
     company = (row.get("Company") or "").strip()
@@ -277,7 +313,8 @@ def draft_for_row(client, row: dict) -> dict:
 
     # Streaming because web search plus a full email routinely runs long
     # enough to trip the non-streaming HTTP timeout.
-    with client.messages.stream(
+    message = _stream_with_retry(
+        client,
         model=MODEL,
         max_tokens=8000,
         system=system,
@@ -289,8 +326,7 @@ def draft_for_row(client, row: dict) -> dict:
             "max_uses": 8,
         }],
         messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        message = stream.get_final_message()
+    )
 
     if message.stop_reason == "refusal":
         detail = getattr(message, "stop_details", None)

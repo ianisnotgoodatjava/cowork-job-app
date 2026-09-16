@@ -468,8 +468,25 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         return (tier_rank.get(tier, 99), -batch_outreach.fit_score(row))
 
     ranked = sorted(rows, key=priority)
-    targets = [r for r in ranked
-               if batch_outreach.fit_score(r) >= min_fit][:limit]
+
+    # One company per run. Ranking by findability put three Fitch rows at
+    # the top and a --limit 3 run researched all three, landing a fourth and
+    # fifth cold email on a firm that already held two drafts and an active
+    # warm thread. Colleagues compare notes; a fifth email from the same
+    # graduate reads as a mail merge and undercuts the referral already in
+    # motion there. Spread the budget across firms instead.
+    from company_match import slug as company_slug
+    targets, seen = [], set()
+    for row in ranked:
+        if batch_outreach.fit_score(row) < min_fit:
+            continue
+        key = company_slug(row.get("Company", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        targets.append(row)
+        if len(targets) >= limit:
+            break
 
     if new_only and not targets:
         print("nothing new to research")

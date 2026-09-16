@@ -104,6 +104,12 @@ DECISIVE_PHRASES = [
     # experience most closely aligns". The list had "decided to move forward
     # with other", which this does not contain.
     "move forward with candidates whose",
+    # ORIX's Workday template, sent under the subject "Thank you for your
+    # application!" -- identical to its confirmation -- so it never reached
+    # the rejection scan and read as a second confirmation. "the credentials
+    # of other candidates better fits the requirements of the position".
+    "credentials of other candidates",
+    "other candidates better fit",
     # Kroll's wording, which reports the role's state rather than a decision
     # about you: "the position you applied for ... has now been filled and we
     # are no longer considering applications for the role". The list had

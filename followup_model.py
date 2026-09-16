@@ -22,6 +22,7 @@ import os
 import pickle
 import re
 import statistics
+import time
 
 from style_profile import CORPUS, _clean, load
 
@@ -93,67 +94,63 @@ def timing(path: str = CORPUS) -> dict:
 
 
 def measure(path: str = CORPUS) -> dict:
-    """The shape of his follow-ups, for the drafter to aim at."""
-    emails = _follow_ups(load(path))
-    if not emails:
+    """The shape of his nudges, for the drafter to aim at.
+
+    Measured over the verified nudges when they exist. The corpus flag is the
+    fallback only, since it mixes in warm replies and drags every number
+    toward a different kind of email.
+    """
+    bodies = nudges() or [_clean(e["body"]) for e in _follow_ups(load(path))]
+    if not bodies:
         return {}
-    words = [len(_clean(e["body"]).split()) for e in emails]
-    paragraphs = [len([p for p in _clean(e["body"]).split("\n\n") if p.strip()])
-                  for e in emails]
-    questions = sum(1 for e in emails if "?" in _clean(e["body"]))
+    words = [len(b.split()) for b in bodies]
+    paragraphs = [len([p for p in b.split("\n\n") if p.strip()]) for b in bodies]
+    questions = sum(1 for b in bodies if "?" in b)
     return {
-        "n": len(emails),
+        "n": len(bodies),
         "median_words": int(statistics.median(words)),
         "p25_words": sorted(words)[len(words) // 4],
         "p75_words": sorted(words)[3 * len(words) // 4],
         "median_paragraphs": int(statistics.median(paragraphs)),
-        "pct_with_question": round(100 * questions / len(emails)),
+        "pct_with_question": round(100 * questions / len(bodies)),
     }
+
+
+def nudges() -> list[str]:
+    """His verified nudges into silence, from the Gmail-labelled set.
+
+    These come from thread state, not the corpus flag, so every one is a
+    real second touch to someone who had not replied. That verification
+    matters more than volume: the corpus flag would hand the drafter mostly
+    warm replies, and one "thanks for getting back to me" sent into silence
+    is worse than no exemplar at all.
+    """
+    texts, labels = _cached_training_set()
+    return [t for t, l in zip(texts, labels) if l]
 
 
 def exemplars(company: str = "", role: str = "", area: str = "",
               k: int = 2) -> list[dict]:
-    """His real follow-ups closest in topic, to show shape not content.
+    """The verified nudges closest in topic, to show shape not content.
 
-    No minimum length here, unlike the first-touch exemplars: brevity is the
-    defining feature of these, so filtering short ones out would hide the
-    very thing worth copying.
+    Retrieval is a TF-IDF match over the nudge pool itself. No minimum
+    length, unlike the first-touch exemplars: brevity is the defining
+    feature of these, so filtering short ones out would hide the very thing
+    worth copying.
     """
-    try:
-        import outreach_retrieval as orx
-        index = orx.load_index()
-    except Exception:
+    pool = nudges()
+    if not pool:
         return []
-    query = orx.build_query(company=company, area=area, title="", role=role)
-    try:
-        hits = index.search(query, k=k + 8)
-    except Exception:
-        return []
-
-    out, seen = [], set()
-    for _score, record in hits:
-        if not record.get("is_follow_up"):
-            continue
-        body = _clean(record.get("body", ""))
-        if not body:
-            continue
-        key = (record.get("company") or "").lower()
-        if key and key in seen:
-            continue
-        seen.add(key)
-        out.append({"subject": record.get("subject", ""), "body": body})
-        if len(out) >= k:
-            break
-
-    # Topic retrieval can miss when the area is unlike anything he has
-    # followed up on. A follow-up in his own words still beats none, so fall
-    # back to the most recent ones rather than returning empty.
-    if not out:
-        recent = sorted(_follow_ups(load()),
-                        key=lambda r: r.get("date") or "", reverse=True)
-        out = [{"subject": r.get("subject", ""), "body": _clean(r["body"])}
-               for r in recent[:k]]
-    return out
+    query = " ".join(p for p in (company, role, area) if p).strip()
+    if not query or len(pool) <= k:
+        picked = pool[:k]
+    else:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        vec = TfidfVectorizer(stop_words="english").fit(pool + [query])
+        sims = (vec.transform(pool) @ vec.transform([query]).T).toarray().ravel()
+        order = sims.argsort()[::-1]
+        picked = [pool[i] for i in order[:k]]
+    return [{"subject": "", "body": body} for body in picked]
 
 
 def build_training_set(days_back: int = 400, limit: int = 400) -> tuple:
@@ -176,12 +173,26 @@ def build_training_set(days_back: int = 400, limit: int = 400) -> tuple:
         f"in:sent newer_than:{days_back}d {NETWORKING_KEYWORDS}",
         max_results=limit)
 
+    # search_messages returns [] when the API rate-limits rather than raising,
+    # which reads identically to "you have no outreach" and silently trains on
+    # nothing. Refusing here is the difference between a bad model and an
+    # obvious error.
+    if not msgs:
+        raise RuntimeError(
+            "Gmail returned no sent outreach. That is usually rate limiting "
+            "rather than an empty mailbox -- wait a minute and re-run.")
+
     texts, labels, seen = [], [], set()
     for msg in msgs:
         tid = msg.get("threadId") or msg["id"]
         if tid in seen:
             continue
         seen.add(tid)
+
+        # One thread fetch per thread trips Gmail's per-user rate limit at a
+        # few hundred; the pause costs seconds and avoids losing the run.
+        if len(seen) % 25 == 0:
+            time.sleep(2)
 
         try:
             thread = gmail_client.get_thread(tid, include_body=True)

@@ -185,7 +185,7 @@ def _parse(text: str) -> dict:
     return out
 
 
-def _via_cli(system: str, prompt: str, timeout: int = 420) -> str:
+def _via_cli(system: str, prompt: str, timeout: int = 1200) -> str:
     """Run the same request through the `claude` CLI instead of the API.
 
     The API path needs ANTHROPIC_API_KEY, which is a second bill on top of a
@@ -196,29 +196,98 @@ def _via_cli(system: str, prompt: str, timeout: int = 420) -> str:
 
     WebSearch has to be granted explicitly. Without --allowed-tools the
     headless run has no search, and this whole step exists to look people up.
+
+    Two failures are worth waiting out rather than giving up on. A request
+    that runs Opus through eight web searches streams for a minute or more,
+    and the connection dropping mid-stream is ordinary -- the same request
+    succeeds on the next try. And the subscription's usage window is shared
+    with interactive Claude Code sessions, so a 429 here often means "the
+    window is full right now", not "never". Anything else is real and is
+    raised as before.
     """
     import subprocess
 
-    result = subprocess.run(
-        ["claude", "-p", prompt,
-         "--append-system-prompt", system,
-         "--allowed-tools", "WebSearch,WebFetch",
-         "--model", MODEL],
-        capture_output=True, text=True, timeout=timeout)
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()[:200]
-        if "not logged in" in detail.lower() or "/login" in detail:
+    argv = ["claude", "-p", prompt,
+            "--append-system-prompt", system,
+            "--allowed-tools", "WebSearch,WebFetch",
+            "--model", MODEL]
+    transient = ("connection closed", "rate limit", "429",
+                 "try again later", "overloaded", "timed out",
+                 "unable to connect", "enotfound", "econnreset",
+                 "etimedout", "network")
+    max_attempts = 4
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = subprocess.run(argv, capture_output=True, text=True,
+                                    timeout=timeout)
+        except subprocess.TimeoutExpired:
+            detail = f"timed out after {timeout}s"
+        else:
+            if result.returncode == 0:
+                return result.stdout
+            detail = (result.stderr or result.stdout or "").strip()[:200]
+
+        lowered = detail.lower()
+        if "not logged in" in lowered or "/login" in detail:
             raise SystemExit(
                 "The claude CLI is installed but not signed in.\n"
                 "Run `claude` in a terminal, then `/login`, and this step\n"
                 "works on your existing subscription with no API key.")
-        raise RuntimeError(f"claude CLI failed: {detail}")
-    return result.stdout
+        if not any(marker in lowered for marker in transient):
+            raise RuntimeError(f"claude CLI failed: {detail}")
+        # A 429 that says the request "would exceed" the limit is a size or
+        # quota ceiling, not a burst that clears in a minute. Retrying it
+        # spent four more attempts of quota on an identical request and
+        # tripped the account's usage limit twice on fresh resets. One try,
+        # then hand it to the next scheduled run.
+        if "would exceed" in lowered or "usage limit" in lowered:
+            raise RuntimeError(
+                f"claude CLI rate-limited: {detail[:120]}\n"
+                "    Not retrying -- this is a quota ceiling, and the next "
+                "scheduled pass\n    will pick the row up when the window "
+                "resets.")
+        if attempt == max_attempts:
+            raise RuntimeError(f"claude CLI failed after {max_attempts} "
+                               f"attempts: {detail}")
+
+        # Usage-window 429s clear on the window's own schedule, so the wait
+        # is minutes, not seconds; a dropped connection needs almost none.
+        wait = 120 * attempt if "429" in lowered or "rate limit" in lowered \
+            else 10 * attempt
+        print(f"    {detail[:60]} — retrying in {wait}s "
+              f"(attempt {attempt}/{max_attempts})", flush=True)
+        time.sleep(wait)
+
+
+def _credential() -> str:
+    """Which credential is available, and therefore which path to take.
+
+    The two are not interchangeable, which cost a full debugging pass to
+    learn. A metered API key (sk-ant-api03-) reaches every model over the
+    Messages API. A subscription OAuth token (sk-ant-oat01-, what
+    `claude setup-token` prints) does not: over the raw API it is throttled
+    to Haiku, and every Opus and Sonnet request comes back 429 no matter how
+    long you back off. The same token driving the `claude` CLI runs Opus
+    with web search perfectly well, because that path bills against the
+    subscription's own entitlements instead.
+
+    So the token is not the deciding factor -- its *type* is.
+    """
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+
+    # An oat01 token in either variable means CLI, not API.
+    for value in (key, token):
+        if value.startswith("sk-ant-oat01-"):
+            return "cli"
+    if key or token:
+        return "api"
+    return "none"
 
 
 def _have_api_key() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY")
-                or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    return _credential() == "api"
 
 
 def _cli_ready() -> bool:
@@ -286,6 +355,20 @@ def draft_for_row(client, row: dict) -> dict:
           "person, and write the email."
     )
 
+    # The subscription path has a much tighter rate window than a metered
+    # key. The full job -- three contacts, up to eight searches each, results
+    # accumulating into context -- was rejected outright with "this request
+    # would exceed your account's rate limit", twice, on fresh resets. One
+    # contact and three searches fits; the output format is unchanged so the
+    # parser and the address check downstream do not care.
+    if client is None:
+        prompt += (
+            "\n\nBUDGET FOR THIS RUN: find ONE contact only and use at most "
+            "3 web searches. Fill CONTACT block 1; put UNKNOWN in "
+            "CONTACT_NAME_2 and CONTACT_NAME_3 and leave their other fields "
+            "empty. Keep thinking brief."
+        )
+
     # The measured style is injected here rather than baked into SYSTEM, so
     # rebuilding the corpus after more mail goes out moves the target instead
     # of leaving a stale description in a constant.
@@ -341,11 +424,12 @@ def draft_for_row(client, row: dict) -> dict:
 def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         out_dir: str = OUT_DIR, create_drafts: bool = False,
         new_only: bool = False, write_link: bool = True) -> None:
-    # Either credential will do. The API bills separately; the CLI runs on
-    # the Claude subscription already being paid for, so it is tried second
-    # only because the API is faster when a key exists.
+    # The credential's type picks the path -- see _credential(). A metered
+    # key goes over the API because it is faster; a subscription token has
+    # to go through the CLI, because over the API it is capped at Haiku,
+    # which cannot use the web search this step is built around.
     client = None
-    if _have_api_key():
+    if _credential() == "api":
         try:
             import anthropic
         except ImportError:

@@ -207,9 +207,18 @@ def _via_cli(system: str, prompt: str, timeout: int = 1200) -> str:
     """
     import subprocess
 
+    # Disallowing Task is deliberate. Left to itself the CLI spawns a research
+    # subagent that runs twenty-odd searches per contact -- the API path was
+    # designed around max_uses=8 -- and one such run consumed the whole
+    # subscription usage window before it could finish writing. The
+    # remaining tools (Bash, Edit, Write, ...) have no business in a step
+    # that only reads the web and returns text.
     argv = ["claude", "-p", prompt,
             "--append-system-prompt", system,
             "--allowed-tools", "WebSearch,WebFetch",
+            "--disallowed-tools",
+            "Task,Agent,Bash,Edit,Write,MultiEdit,NotebookEdit,"
+            "Read,Glob,Grep,LS,TodoWrite,TodoRead",
             "--model", MODEL]
     transient = ("connection closed", "rate limit", "429",
                  "try again later", "overloaded", "timed out",
@@ -217,10 +226,21 @@ def _via_cli(system: str, prompt: str, timeout: int = 1200) -> str:
                  "etimedout", "network")
     max_attempts = 4
 
+    # A clean environment for the child. When this runs from inside an
+    # interactive Claude Code session, the subprocess inherits ~27 session
+    # variables -- CLAUDECODE=1, CLAUDE_CODE_CHILD_SESSION=1, the messaging
+    # socket, the session id -- and reads as a nested child of that session,
+    # picking up its permission rules. One such run failed outright with
+    # "Permission deny rule 'MultiEdit' matches no known tool". The launchd
+    # job never has any of that, so the two paths behaved differently.
+    # Keep only what the CLI needs: the credential, PATH, HOME.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("CLAUDE")}
+
     for attempt in range(1, max_attempts + 1):
         try:
             result = subprocess.run(argv, capture_output=True, text=True,
-                                    timeout=timeout)
+                                    timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             detail = f"timed out after {timeout}s"
         else:
@@ -553,7 +573,22 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
             })
 
         if not contacts:
-            print("    no named person found — skipped rather than invented")
+            # Keep what the model said anyway. A skip with nothing on disk
+            # is undiagnosable -- whether it found the posting, how far it
+            # got, what it tried -- and the same row will be retried next
+            # run, so the reason it failed is exactly what needs reading.
+            skipped_path = os.path.join(
+                out_dir, f"{row['row_number']:03d}_"
+                         f"{batch_outreach._slug(row['Company'])}.SKIPPED.txt")
+            with open(skipped_path, "w", encoding="utf-8") as f:
+                f.write(f"Company:  {row['Company']}  (sheet row {row['row_number']})\n"
+                        f"Role:     {row['Position']}\n"
+                        f"Job link: {fields.get('job_url', 'UNKNOWN')}\n"
+                        f"Sources:\n{fields.get('sources', '(none)')}\n"
+                        f"\n{'=' * 70}\nRAW RESPONSE\n{'=' * 70}\n"
+                        f"{fields.get('_raw', '(empty)')}\n")
+            print(f"    no named person found — skipped rather than invented "
+                  f"(see {skipped_path})")
             continue
 
         path = os.path.join(

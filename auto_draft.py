@@ -445,7 +445,9 @@ def draft_for_row(client, row: dict) -> dict:
 
 def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         out_dir: str = OUT_DIR, create_drafts: bool = False,
-        new_only: bool = False, write_link: bool = True) -> None:
+        new_only: bool = False, write_link: bool = True,
+        days_back: int | None = None,
+        skip_interviewing: bool = True) -> None:
     # The credential's type picks the path -- see _credential(). A metered
     # key goes over the API because it is faster; a subscription token has
     # to go through the CLI, because over the API it is capped at Haiku,
@@ -472,6 +474,27 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
 
     rows = [r for r in sheets.list_rows()
             if status_mod.is_open(r.get("Status", ""))]
+
+    # A company you are already interviewing at does not need a cold email
+    # to a stranger on the desk -- it needs the interview to go well. And
+    # findability ranks the same well-documented firms first every time, so
+    # without a date window the recent applications never come up at all.
+    if skip_interviewing:
+        rows = [r for r in rows
+                if "interview" not in (r.get("Status") or "").lower()]
+    # A staffing agency is not the employer. Researching a "Senior Analyst"
+    # at Onyx Staffing finds a recruiter, and the email reads as one more
+    # candidate chasing them -- which is what they already have a queue of.
+    rows = [r for r in rows if not re.search(
+        r"staffing|recruit|talent partners|search partners|\bagency\b",
+        r.get("Company") or "", re.I)]
+    if days_back:
+        import datetime
+        from date_utils import parse_date
+        cutoff = datetime.date.today() - datetime.timedelta(days=days_back)
+        rows = [r for r in rows
+                if (parse_date(r.get("Applied Draes", "")) or datetime.date.min)
+                >= cutoff]
     done = _done()
     if new_only:
         rows = [r for r in rows if _key(r) not in done]

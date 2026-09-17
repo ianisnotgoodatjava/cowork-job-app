@@ -290,7 +290,8 @@ def cmd_auto_draft(args):
     import auto_draft
     auto_draft.run(limit=args.limit, min_fit=args.min_fit,
                    dry_run=not args.write_drafts,
-                   create_drafts=args.write_drafts)
+                   create_drafts=args.write_drafts,
+                   days_back=args.days)
 
 
 def cmd_batch_outreach(args):
@@ -678,6 +679,8 @@ def main():
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--min-fit", type=float, default=2.0)
     p.add_argument("--write-drafts", action="store_true", help="Also create the Gmail drafts (still unsent)")
+    p.add_argument("--days", type=int, default=None,
+                   help="Only applications from the last N days (default: all open)")
     p.set_defaults(func=cmd_auto_draft)
 
     p = sub.add_parser("batch-outreach", help="Prepare an outreach draft for each uncontacted application, ranked by fit; you fill in the hook")

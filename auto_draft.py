@@ -211,14 +211,16 @@ def _via_cli(system: str, prompt: str, timeout: int = 1200) -> str:
     # subagent that runs twenty-odd searches per contact -- the API path was
     # designed around max_uses=8 -- and one such run consumed the whole
     # subscription usage window before it could finish writing. The
-    # remaining tools (Bash, Edit, Write, ...) have no business in a step
-    # that only reads the web and returns text.
+    # Only Task and Bash are named. The CLI refuses the whole command if a
+    # deny rule names a tool it does not have, and the tool set differs
+    # between versions -- "MultiEdit" once cost a full batch that way. Task
+    # is the one that multiplies cost; Bash is the one with no place here.
+    # The file-editing tools are harmless to a prompt that never asks for
+    # them, so they are left alone rather than guessed at.
     argv = ["claude", "-p", prompt,
             "--append-system-prompt", system,
             "--allowed-tools", "WebSearch,WebFetch",
-            "--disallowed-tools",
-            "Task,Agent,Bash,Edit,Write,MultiEdit,NotebookEdit,"
-            "Read,Glob,Grep,LS,TodoWrite,TodoRead",
+            "--disallowed-tools", "Task,Bash",
             "--model", MODEL]
     transient = ("connection closed", "rate limit", "429",
                  "try again later", "overloaded", "timed out",

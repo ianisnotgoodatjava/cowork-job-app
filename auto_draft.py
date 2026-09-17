@@ -654,10 +654,29 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         if create_drafts and not dry_run:
             import gmail_client
             for c in contacts:
-                gmail_client.create_draft(
-                    to=c["addr"], subject=c["subject"],
-                    body_text=c["body"], attachments=[resume])
-                print(f"    Gmail draft created (unsent) -> {c['addr']}")
+                # The research is the expensive part and it is already on
+                # disk. A Gmail per-minute quota hit here -- one 403 -- used
+                # to raise straight out of run(), killing the whole batch
+                # after the first row and losing three rows that had not
+                # even been researched yet. Back off and retry; if Gmail
+                # still refuses, say so and keep going -- the .txt is there
+                # to create the draft from by hand.
+                for attempt in range(1, 6):
+                    try:
+                        gmail_client.create_draft(
+                            to=c["addr"], subject=c["subject"],
+                            body_text=c["body"], attachments=[resume])
+                        print(f"    Gmail draft created (unsent) -> {c['addr']}")
+                        break
+                    except Exception as exc:
+                        text = str(exc)
+                        if "403" in text or "429" in text or "rateLimit" in text:
+                            if attempt < 5:
+                                time.sleep(20 * attempt)
+                                continue
+                        print(f"    ! Gmail draft not created for {c['addr']}: "
+                              f"{text[:90]}\n      (research saved to {path})")
+                        break
 
     _mark_done(done)
     print(f"\nDone. Drafts in {out_dir}/")

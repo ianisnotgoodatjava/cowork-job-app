@@ -298,7 +298,7 @@ def cmd_auto_draft(args):
                    dry_run=not args.write_drafts,
                    create_drafts=args.write_drafts,
                    days_back=args.days, prefer=args.prefer,
-                   exclude=args.exclude, new_only=args.new_only)
+                   exclude=args.exclude, new_only=not args.redo)
 
 
 def cmd_batch_outreach(args):
@@ -692,8 +692,13 @@ def main():
                    help="Regex; matching company/role/skills go first (e.g. 'real estate|CRE|mortgage')")
     p.add_argument("--exclude", default=None,
                    help="Regex on company to leave out entirely (e.g. 'situs')")
-    p.add_argument("--new-only", action="store_true",
-                   help="Skip applications already researched in a previous run")
+    # Skipping already-researched rows is the default, not an opt-in. With it
+    # off, a second manual run re-researched ofi, the NY Fed and ETR -- found
+    # different people each time -- and left two drafts per firm, one of them
+    # to a Global Head the prompt says never to target. Research is the
+    # expensive step; repeating it by accident is the failure to guard.
+    p.add_argument("--redo", action="store_true",
+                   help="Re-research applications already done in a previous run")
     p.set_defaults(func=cmd_auto_draft)
 
     p = sub.add_parser("batch-outreach", help="Prepare an outreach draft for each uncontacted application, ranked by fit; you fill in the hook")

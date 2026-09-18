@@ -13,6 +13,7 @@ _recipients_sample.json
 logs/
 rejection_model.pkl
 interview_model.pkl
+followup_model.pkl
 prep/
 resumes/
 

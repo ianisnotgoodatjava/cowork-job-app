@@ -154,7 +154,7 @@ def get_thread(thread_id: str, include_body: bool = True) -> list[dict]:
         lambda: svc.users().threads().get(
             userId="me", id=thread_id,
             format="full" if include_body else "metadata",
-            metadataHeaders=["Subject", "From", "To", "Date"],
+            metadataHeaders=["Subject", "From", "To", "Date", "Message-ID"],
         ).execute()
     )
     if thread is None:
@@ -170,7 +170,13 @@ def get_thread(thread_id: str, include_body: bool = True) -> list[dict]:
             "from": headers.get("From", ""),
             "to": headers.get("To", ""),
             "date": headers.get("Date", ""),
+            # The RFC id a reply's In-Reply-To must point at; distinct from
+            # Gmail's own message id above.
+            "message_id": headers.get("Message-ID", headers.get("Message-Id", "")),
             "snippet": full.get("snippet", ""),
+            # Drafts sit in the thread as messages carrying the DRAFT label;
+            # without this a caller cannot tell a sent reply from a pending one.
+            "labels": full.get("labelIds", []),
         }
         if include_body:
             entry["body"] = _extract_body(full["payload"])
@@ -198,11 +204,24 @@ def _extract_mimetype(payload: dict, mimetype: str) -> str:
     return ""
 
 
-def create_draft(to: str, subject: str, body_text: str, attachments: list[str] | None = None) -> str:
-    """Creates a Gmail draft and returns its draft id."""
+def create_draft(to: str, subject: str, body_text: str,
+                 attachments: list[str] | None = None,
+                 thread_id: str | None = None,
+                 in_reply_to: str | None = None) -> str:
+    """Creates a Gmail draft and returns its draft id.
+
+    Pass `thread_id` and the original's RFC Message-ID as `in_reply_to` to
+    make the draft a reply inside an existing thread. Gmail groups by
+    threadId; other mail clients group by In-Reply-To/References, so both
+    are set. Without them the draft is a fresh message, which is right for
+    first-touch outreach and wrong for a follow-up.
+    """
     message = EmailMessage()
     message["To"] = to
     message["Subject"] = subject
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+        message["References"] = in_reply_to
     message.set_content(body_text)
 
     for path in attachments or []:
@@ -221,9 +240,12 @@ def create_draft(to: str, subject: str, body_text: str, attachments: list[str] |
             )
 
     encoded = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    payload = {"raw": encoded}
+    if thread_id:
+        payload["threadId"] = thread_id
     svc = _service()
     draft = svc.users().drafts().create(
-        userId="me", body={"message": {"raw": encoded}}
+        userId="me", body={"message": payload}
     ).execute()
     return draft["id"]
 

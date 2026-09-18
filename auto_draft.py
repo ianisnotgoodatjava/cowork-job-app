@@ -447,7 +447,9 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         out_dir: str = OUT_DIR, create_drafts: bool = False,
         new_only: bool = False, write_link: bool = True,
         days_back: int | None = None,
-        skip_interviewing: bool = True) -> None:
+        skip_interviewing: bool = True,
+        prefer: str | None = None,
+        exclude: str | None = None) -> None:
     # The credential's type picks the path -- see _credential(). A metered
     # key goes over the API because it is faster; a subscription token has
     # to go through the CLI, because over the API it is capped at Haiku,
@@ -495,6 +497,10 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         rows = [r for r in rows
                 if (parse_date(r.get("Applied Draes", "")) or datetime.date.min)
                 >= cutoff]
+    # A firm he has said not to contact is out regardless of how it ranks.
+    if exclude:
+        rows = [r for r in rows
+                if not re.search(exclude, r.get("Company") or "", re.I)]
     done = _done()
     if new_only:
         rows = [r for r in rows if _key(r) not in done]
@@ -505,12 +511,25 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
     # shop with no footprint burns the same eight searches and returns
     # UNKNOWN. Ordering by fit alone spent the budget on whichever role
     # matched the resume best, findable or not.
+    #
+    # `prefer` sits above both: when he wants a sector first (CRE this week),
+    # every matching row outranks every non-matching one, and findability
+    # only orders within each group.
     patterns = findability._load_patterns()
     tier_rank = {t: i for i, t in enumerate(findability.ORDER)}
+    prefer_re = re.compile(prefer, re.I) if prefer else None
+
+    def _wanted(row):
+        if not prefer_re:
+            return 0
+        blob = " ".join(str(row.get(k) or "") for k in
+                        ("Company", "Position", "Required Skills & Experience"))
+        return 0 if prefer_re.search(blob) else 1
 
     def priority(row):
         tier, _ = findability.classify(row, patterns)
-        return (tier_rank.get(tier, 99), -batch_outreach.fit_score(row))
+        return (_wanted(row), tier_rank.get(tier, 99),
+                -batch_outreach.fit_score(row))
 
     ranked = sorted(rows, key=priority)
 
@@ -523,7 +542,11 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
     from company_match import slug as company_slug
     targets, seen = [], set()
     for row in ranked:
-        if batch_outreach.fit_score(row) < min_fit:
+        # Fit is how the budget gets split among rows he has no view on. A
+        # row he asked for by sector is not one of those, and most of the
+        # CRE rows score 1.0 only because the sheet has no skills text for
+        # them -- a gap in the data, not a verdict on the role.
+        if _wanted(row) and batch_outreach.fit_score(row) < min_fit:
             continue
         key = company_slug(row.get("Company", ""))
         if key in seen:

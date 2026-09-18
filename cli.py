@@ -297,7 +297,8 @@ def cmd_auto_draft(args):
     auto_draft.run(limit=args.limit, min_fit=args.min_fit,
                    dry_run=not args.write_drafts,
                    create_drafts=args.write_drafts,
-                   days_back=args.days)
+                   days_back=args.days, prefer=args.prefer,
+                   exclude=args.exclude, new_only=args.new_only)
 
 
 def cmd_batch_outreach(args):
@@ -687,6 +688,12 @@ def main():
     p.add_argument("--write-drafts", action="store_true", help="Also create the Gmail drafts (still unsent)")
     p.add_argument("--days", type=int, default=None,
                    help="Only applications from the last N days (default: all open)")
+    p.add_argument("--prefer", default=None,
+                   help="Regex; matching company/role/skills go first (e.g. 'real estate|CRE|mortgage')")
+    p.add_argument("--exclude", default=None,
+                   help="Regex on company to leave out entirely (e.g. 'situs')")
+    p.add_argument("--new-only", action="store_true",
+                   help="Skip applications already researched in a previous run")
     p.set_defaults(func=cmd_auto_draft)
 
     p = sub.add_parser("batch-outreach", help="Prepare an outreach draft for each uncontacted application, ranked by fit; you fill in the hook")

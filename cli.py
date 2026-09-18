@@ -158,6 +158,12 @@ def cmd_follow_ups(args):
     follow_up.scan(days_back=args.days, min_age_days=args.min_age)
 
 
+def cmd_schedule_followups(args):
+    import followup_scheduler
+    followup_scheduler.run(min_age_days=args.min_age, max_age_days=args.max_age,
+                           max_drafts=args.max, dry_run=not args.draft)
+
+
 def cmd_enable_calendar(args):
     import google_auth
     if google_auth.has_calendar_access():
@@ -799,6 +805,17 @@ def main():
     p.add_argument("--days", type=int, default=180)
     p.add_argument("--min-age", type=int, default=7, help="Only flag sends older than this many days")
     p.set_defaults(func=cmd_follow_ups)
+
+    p = sub.add_parser("schedule-followups",
+                       help="Find silent outreach past the learned wait and draft ONE touch #2 each")
+    p.add_argument("--min-age", type=int, default=None,
+                   help="Days of silence before a follow-up is due (default: his measured median)")
+    p.add_argument("--max-age", type=int, default=30,
+                   help="Ignore first sends older than this; that is reoutreach's territory")
+    p.add_argument("--max", type=int, default=12, help="Most drafts to create in one run")
+    p.add_argument("--draft", action="store_true",
+                   help="Create the Gmail drafts. Without this, only report what is due")
+    p.set_defaults(func=cmd_schedule_followups)
 
     p = sub.add_parser("cleanup-drafts", help="Delete outreach drafts for applications that were rejected")
     p.add_argument("--dry-run", action="store_true")

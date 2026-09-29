@@ -47,8 +47,20 @@ def _core(company: str) -> str:
 
 
 def _mentions(needle: str, haystack: str) -> bool:
+    # The needle arrives normalized -- punctuation stripped -- so the haystack
+    # has to be read the same way or the two can never meet. "ETR (Enterprise
+    # Technology Research)" normalizes to "etr enterprise technology research"
+    # and could not match the subject line that spelled it with brackets, so
+    # a LinkedIn rejection for that role went undetected and outreach was
+    # drafted to two people there afterwards. Any name carrying brackets, an
+    # ampersand or a dot had the same hole.
+    # Deleted, not replaced with a space -- exactly what normalize() does to
+    # the needle. Substituting a space instead turned "AT&T" into "at t",
+    # which the needle "att" still could not match.
+    flat = re.sub(r"[^a-z0-9 ]", "", haystack.lower())
+    flat = re.sub(r"\s+", " ", flat)
     pattern = r"\b" + re.escape(needle).replace(r"\ ", r"\s+") + r"\b"
-    return re.search(pattern, haystack) is not None
+    return re.search(pattern, flat) is not None
 
 
 def company_mentioned(company: str, haystack: str) -> bool:

@@ -3,7 +3,7 @@
 import os
 from googleapiclient.discovery import build
 from google_auth import get_credentials
-from config import HEADERS
+from config import CANONICAL, HEADERS, RENAMED
 
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "Applications")
@@ -40,7 +40,7 @@ def ensure_headers():
             spreadsheetId=SHEET_ID,
             range=f"{SHEET_TAB}!A1",
             valueInputOption="RAW",
-            body={"values": [HEADERS]},
+            body={"values": [CANONICAL]},
         ).execute()
         return
 
@@ -89,6 +89,7 @@ def append_job_row(job: dict) -> int:
     ambiguity.
     """
     ensure_headers()
+    job = _with_aliases(dict(job))
     row = [job.get(h, "") for h in HEADERS]
     svc = _service()
     next_row = len(list_rows()) + 2  # +1 for the header, +1 to land past the last row
@@ -152,6 +153,22 @@ def update_rows(patches: dict[int, dict], chunk: int = 500) -> int:
     return len(data)
 
 
+def _with_aliases(row: dict) -> dict:
+    """Expose both spellings of every renamed column.
+
+    Rows are read positionally, so the dict is keyed by whatever HEADERS
+    calls a column. Callers written against either spelling then work
+    against either sheet -- the original one with "Applied Draes" in it, and
+    a sheet created today with "Applied Date".
+    """
+    for legacy, canonical in RENAMED.items():
+        if legacy in row and canonical not in row:
+            row[canonical] = row[legacy]
+        elif canonical in row and legacy not in row:
+            row[legacy] = row[canonical]
+    return row
+
+
 def list_rows() -> list[dict]:
     """Returns all logged applications as a list of dicts, in sheet order."""
     svc = _service()
@@ -161,7 +178,7 @@ def list_rows() -> list[dict]:
     rows = []
     for i, values in enumerate(result.get("values", []), start=2):
         padded = values + [""] * (len(HEADERS) - len(values))
-        rows.append({"row_number": i, **dict(zip(HEADERS, padded))})
+        rows.append(_with_aliases({"row_number": i, **dict(zip(HEADERS, padded))}))
     return rows
 
 
@@ -176,7 +193,7 @@ def get_row(row_number: int) -> dict:
     if not values[0]:
         raise ValueError(f"No application on row {row_number}")
     padded = values[0] + [""] * (len(HEADERS) - len(values[0]))
-    return {"row_number": row_number, **dict(zip(HEADERS, padded))}
+    return _with_aliases({"row_number": row_number, **dict(zip(HEADERS, padded))})
 
 
 def _tab_id(svc) -> int:

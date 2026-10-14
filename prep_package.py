@@ -13,7 +13,6 @@ Cover letters are only written when asked for (`--cover-letter`).
 """
 
 import datetime
-import json
 import os
 import re
 

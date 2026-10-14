@@ -546,6 +546,16 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
     # key goes over the API because it is faster; a subscription token has
     # to go through the CLI, because over the API it is capped at Haiku,
     # which cannot use the web search this step is built around.
+    # Local, like the other cross-module imports here: batch_outreach pulls in
+    # draft_writer and contact_finder, and importing it at module scope makes
+    # the cycle real.
+    import batch_outreach
+
+    # Target selection moved out of this function, and took the set of
+    # already-researched keys with it -- but run() still records into it and
+    # still saves it at the end, so it has to exist here too.
+    done = _done()
+
     client = None
     if _credential() == "api":
         try:

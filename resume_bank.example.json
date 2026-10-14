@@ -1,0 +1,90 @@
+{
+  "_comment": "Your resume, broken into reusable pieces. `tags` drive which bullets get suggested for a given posting \u2014 edit the tags freely, they are matching hints, not resume text. `text` is what actually goes on the resume, so keep it accurate.",
+  "profile": {
+    "name": "Your Name",
+    "email": "you@example.com",
+    "phone": "000-000-0000",
+    "address": "123 Example St, City, ST, 00000",
+    "location": "City, ST",
+    "citizenship": [
+      "Country A"
+    ],
+    "work_authorization": "Authorized to work without sponsorship",
+    "education": {
+      "school": "Your University",
+      "degree": "B.A. in Your Major",
+      "dates": "Aug 20XX \u2014 May 20XX",
+      "gpa": "0.0 / 4.0",
+      "coursework": [
+        "Course One",
+        "Course Two"
+      ],
+      "graduation_date": "May 20XX"
+    },
+    "skills": [
+      "Skill one",
+      "Skill two"
+    ],
+    "languages": [
+      "Language one"
+    ],
+    "certifications": [
+      "Certification one"
+    ],
+    "linkedin": "https://www.linkedin.com/in/your-handle",
+    "race_ethnicity": "",
+    "gender": "",
+    "sexual_orientation": "",
+    "hispanic_ethnicity": "",
+    "veteran_status": "",
+    "willing_to_relocate": "Yes",
+    "referred_by": "No",
+    "salary_major_city": 0,
+    "salary_other": 0
+  },
+  "_experience_comment": "Order here is the order on the rendered resume (reverse-chronological). `section` decides which heading a role sits under. Bullets are attached by matching `company` + `role`.",
+  "experience": [
+    {
+      "company": "Example Corp",
+      "role": "Your Role",
+      "location": "City, ST",
+      "dates": "Jun 20XX \u2014 Present",
+      "section": "experience"
+    }
+  ],
+  "bullets": [
+    {
+      "id": "example-bullet",
+      "company": "Example Corp",
+      "role": "Your Role",
+      "dates": "Jun 20XX \u2014 Present",
+      "text": "",
+      "tags": [
+        "underwriting",
+        "insurance",
+        "property",
+        "risk",
+        "documentation",
+        "compliance",
+        "audit",
+        "operations",
+        "attention to detail"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "example-project",
+      "title": "A project of yours",
+      "text": "What you built and what it did.",
+      "tags": [
+        "machine learning",
+        "python",
+        "automation",
+        "data",
+        "engineering",
+        "impact"
+      ]
+    }
+  ]
+}

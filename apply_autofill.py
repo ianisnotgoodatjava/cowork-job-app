@@ -44,8 +44,8 @@ _ADDRESS_RE = re.compile(
 
 
 def load_bank(path: str = BANK_FILE) -> dict:
-    with open(path) as f:
-        return json.load(f)
+    import resume_bank
+    return resume_bank.load(path)
 
 
 def split_address(address: str) -> dict:

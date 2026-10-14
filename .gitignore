@@ -17,6 +17,10 @@ followup_model.pkl
 prep/
 resumes/
 
+# The filled-in resume: home address, EEO answers, salary expectations.
+# resume_bank.example.json has the same shape with placeholders.
+resume_bank.json
+
 # Sheet snapshots taken before destructive edits — data, not code, and they
 # carry the full application history including named contacts.
 sheet-backup-*.csv

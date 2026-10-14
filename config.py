@@ -27,8 +27,16 @@ def _me_pattern() -> str:
         email, name = profile.get("email", ""), profile.get("name", "")
     except (OSError, ValueError):
         pass
-    email = os.environ.get("OWN_EMAIL") or email
-    name = os.environ.get("OWN_NAME") or name
+    # .env is copied from .env.example, so these arrive pre-filled with
+    # placeholders. Taking them literally would override a correct profile
+    # with "you@example.com" and quietly recognise nobody's mail as yours.
+    def _real(value: str) -> str:
+        placeholder = ("example.com", "your name", "your_", "changeme")
+        low = (value or "").strip().lower()
+        return "" if not low or any(p in low for p in placeholder) else value
+
+    email = _real(os.environ.get("OWN_EMAIL", "")) or email
+    name = _real(os.environ.get("OWN_NAME", "")) or name
 
     alts = [re.escape(e.strip()) for e in email.split(",") if e.strip()]
     if name.strip():
@@ -36,9 +44,16 @@ def _me_pattern() -> str:
         parts = [re.escape(p) for p in name.split()]
         alts.append(r"\.?".join(parts))
     if not alts:
-        raise SystemExit(
-            "Cannot tell which messages are yours. Set `profile.email` in "
-            "resume_bank.json, or OWN_EMAIL in .env.")
+        # Not fatal, deliberately. This is evaluated on `import config`, which
+        # happens on the way into `cli.py setup` -- the command that exists to
+        # help you configure this. Raising here would make the fix unreachable
+        # from the tool that explains it. `(?!)` matches nothing, so until an
+        # identity is set no message is treated as yours, and setup says so.
+        import sys
+        print("warning: no identity configured, so no message can be "
+              "recognised as yours. Set profile.email in resume_bank.json "
+              "or OWN_EMAIL in .env.", file=sys.stderr)
+        return r"(?!)"
     return "|".join(alts)
 
 

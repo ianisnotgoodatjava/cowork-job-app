@@ -1,10 +1,53 @@
 # Job Application Tracker
 
-Logs job applications to a Google Sheet, helps you find a contact at the
-company (manually — no LinkedIn automation), and creates Gmail **drafts**
-for application/outreach emails so you always review before sending.
+A command-line tool that runs a job search end to end: it watches Gmail for
+applications, rejections and replies, keeps a Google Sheet in sync, finds a
+real person to contact at each company, and drafts outreach in your own
+writing voice. ~15k lines of Python across 76 modules and 40 CLI commands.
+
+Built for my own search — 600+ applications, 450+ outreach emails — so every
+design decision came from something that actually went wrong.
+
+## What it does
+
+| | |
+|---|---|
+| **Keeps the sheet honest** | Reads Gmail and classifies each thread: applied, rejected, interviewing, replied. Two scikit-learn classifiers catch wording the phrase rules miss. |
+| **Finds the contact** | Researches a real mid-level person at the company, verifies the name against published sources, and infers the address from the firm's own pattern — reporting whether it's *published*, *previously delivered to*, or *inferred*. |
+| **Writes in your voice** | Drafts are conditioned on a retrieval index over your own past emails, not a generic template. |
+| **Follows up once** | Finds outreach that went quiet past *your measured* follow-up interval and drafts exactly one second touch. Never a third. |
+
+## Three things worth a look
+
+**Learning behaviour instead of assuming it** — `followup_model.py`
+
+The follow-up scheduler needed a wait interval. Rather than pick a round
+number, it measures: pair each follow-up with the message before it to the
+same person, and the median gap is **7 days**, not the 10 I'd have guessed.
+
+Getting the training labels right mattered more than the model. The obvious
+label — "is this a later message in the thread?" — is mostly *replies to
+people who had already written back*. Training on those produces a follow-up
+that opens "Thanks for getting back to me!" addressed to someone who never
+did. The labels come from Gmail thread state instead: a send with no inbound
+message before it is a genuine nudge into silence. That distinction is the
+whole feature.
+
+**Deriving state instead of storing it** — `followup_scheduler.py`
+
+Every rule reads off the live Gmail thread rather than a local state file:
+they replied → skip; two sends of mine already → skip; a pending draft →
+skip. Nothing can drift out of sync with what was actually sent, and re-runs
+are safe by construction.
+
+**Refusing to guess** — `auto_draft.py`
+
+When no contact can be verified, the run writes a `.SKIPPED` file explaining
+why instead of inventing a plausible name. A fabricated detail in a cold
+email is worse than no email: the recipient notices.
 
 ## What this deliberately does NOT do
+
 
 - **No LinkedIn scraping or automation.** LinkedIn's Terms of Service
   prohibit automated data collection, and violating it risks your account.
@@ -46,7 +89,23 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. First run (authorizes your Google account)
+### 4. Your resume
+
+The tool writes emails and tailored resumes from your own text, so it needs
+your details. `resume_bank.json` holds them and is gitignored — it carries a
+home address, EEO answers and salary expectations, which is not something to
+commit.
+
+```bash
+cp resume_bank.example.json resume_bank.json
+```
+
+Then fill it in. The example has the same shape with placeholder values.
+`background.outreach` and `background.job_search` are short bios that go
+into the drafting prompts; `background.evidence` maps posting keywords to a
+line of your experience.
+
+### 5. First run (authorizes your Google account)
 ```bash
 python cli.py log-application --job-title "Software Engineer" --company "Acme Corp" \
   --requirements "Python, 3+ yrs" --location "Remote" --link "https://acme.com/jobs/123"
@@ -187,13 +246,21 @@ python cli.py backfill-job-descriptions --dry-run
 
 ## The nightly run
 
-`com.example.jobtracker` (a launchd agent) runs `run_auto.sh` at **03:15**,
-which runs the full pipeline: new applications, rejections, replies and
-networking, Job Description backfill, sort, colour, and the reach-out
-reminder email.
+A launchd agent runs `run_auto.sh` on a schedule. Copy the template, set
+your own path, and load it:
 
-**launchd cannot wake a sleeping Mac.** If the machine is asleep at 03:15 the
-run is deferred until it next wakes — which is how the 2026-08-03 run died,
+```bash
+sed "s|/ABSOLUTE/PATH/TO/THIS/PROJECT|$PWD|g" jobtracker.plist.example \
+  > ~/Library/LaunchAgents/com.example.jobtracker.plist
+launchctl load ~/Library/LaunchAgents/com.example.jobtracker.plist
+```
+
+The template fires at 06:00, 18:00 and 23:00. Each run does the full
+pipeline: new applications, rejections, replies and networking, Job
+Description backfill, sort, colour, and the reach-out reminder email.
+
+**launchd cannot wake a sleeping Mac.** If the machine is asleep when a run
+is due, it is deferred until the Mac next wakes — which is how the 2026-08-03 run died,
 firing on wake before the network was up. Each step now retries once and then
 skips rather than taking the whole pipeline down, but for it to genuinely run
 overnight you need a wake schedule (this needs your password, so run it
@@ -206,17 +273,36 @@ sudo pmset repeat wakeorpower MTWRFSU 03:10:00
 Check it took with `pmset -g sched`. Without that, keep the lid open or leave
 the Mac plugged in and awake.
 
-## Running this in Cursor
-
-This is a plain Python project — no MCP server or special Cursor config
-needed. Just open this folder in Cursor, open the integrated terminal, and
-run the `venv`/`pip install`/`python cli.py ...` commands above like you
-would in any terminal.
-
 ## Writing the email copy
 
-The CLI intentionally doesn't generate email text itself. The recommended
-flow: ask Claude (in chat) to draft the outreach/application email using the
-job details from your sheet, save the result to a `.txt` file, then pass it
-via `--body-file` to the CLI. Keeps the code simple and keeps you reviewing
-every word before it's sent.
+Two routes, both ending in a draft you review.
+
+**Write it yourself.** Save the text to a `.txt` and pass `--body-file` to
+`draft-outreach-email`.
+
+**Let it research and draft.** `auto-draft` finds the contact, verifies them
+against published sources, and writes the email conditioned on your own past
+outreach:
+
+```bash
+python cli.py auto-draft --days 45 --limit 5 --new-only
+python cli.py auto-draft --prefer 'real estate|CRE|mortgage'   # a sector first
+python cli.py auto-draft --exclude 'some-company'              # leave one out
+```
+
+It needs an LLM. With `ANTHROPIC_API_KEY` set it uses the API; without one it
+shells out to the `claude` CLI, which runs on a Claude subscription at no
+extra cost. Research lands in `logs/drafts/auto/` as text first — turn that
+into sheet contacts and Gmail drafts with `stage-drafts`, which re-reads the
+saved research rather than paying to research again.
+
+## Following up
+
+```bash
+python cli.py schedule-followups            # who is due, nothing written
+python cli.py schedule-followups --draft    # draft one second touch each
+```
+
+The wait defaults to your own measured median rather than a round number.
+See `followup_model.py`; `python followup_model.py` prints what it learned
+from your mail.

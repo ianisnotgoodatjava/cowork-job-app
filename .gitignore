@@ -24,3 +24,7 @@ resume_bank.json
 # Sheet snapshots taken before destructive edits — data, not code, and they
 # carry the full application history including named contacts.
 sheet-backup-*.csv
+
+# Personal launchd agent: it hard-codes your home path.
+# jobtracker.plist.example is the template.
+com.*.jobtracker.plist

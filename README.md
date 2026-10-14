@@ -56,6 +56,20 @@ email is worse than no email: the recipient notices.
 - **No auto-sending email.** Every email is created as a Gmail *draft*.
   You always click Send yourself in Gmail.
 
+## Tests
+
+```bash
+pip install -r requirements.txt
+python -m pytest tests/ -q
+```
+
+They cover the parts that decide something — how much an email address can
+be trusted, which sheet row a saved contact belongs to, and the hand-typed
+date formats — and need no Gmail, Sheet or Claude credential to run. Several
+encode a bug that actually shipped: the address-confidence tests exist
+because the obvious implementation reads the word "inferred" in a research
+note and gets the answer exactly backwards.
+
 ## One-time setup
 
 ### 1. Google Cloud project + APIs

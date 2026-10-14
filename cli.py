@@ -158,6 +158,12 @@ def cmd_follow_ups(args):
     follow_up.scan(days_back=args.days, min_age_days=args.min_age)
 
 
+def cmd_stage_drafts(args):
+    import stage_drafts
+    stage_drafts.run(dry_run=not args.write, create_drafts=args.drafts,
+                     resume=args.company)
+
+
 def cmd_schedule_followups(args):
     import followup_scheduler
     followup_scheduler.run(min_age_days=args.min_age, max_age_days=args.max_age,
@@ -817,6 +823,16 @@ def main():
     p.add_argument("--days", type=int, default=180)
     p.add_argument("--min-age", type=int, default=7, help="Only flag sends older than this many days")
     p.set_defaults(func=cmd_follow_ups)
+
+    p = sub.add_parser("stage-drafts",
+                       help="Name the contact on the sheet and create Gmail drafts from research already saved")
+    p.add_argument("--write", action="store_true",
+                   help="Apply the changes; without it, only report what would happen")
+    p.add_argument("--drafts", action="store_true",
+                   help="Also create the Gmail drafts (still unsent)")
+    p.add_argument("--company", default=None,
+                   help="Regex; only stage companies matching this")
+    p.set_defaults(func=cmd_stage_drafts)
 
     p = sub.add_parser("schedule-followups",
                        help="Find silent outreach past the learned wait and draft ONE touch #2 each")

@@ -36,6 +36,15 @@ CONTACTS_PER_APPLICATION = 3
 RESUME = os.path.expanduser("~/Ian_Liu_Resume.pdf")
 
 
+def _signoff() -> str:
+    """Name and contact line under the sign-off, from the bank."""
+    import resume_bank
+    bank = resume_bank.load()
+    name = bank.get("profile", {}).get("name", "")
+    contact = bank.get("background", {}).get("signature_contact", "")
+    return f"{name}\n{contact}" if contact else name
+
+
 def _body(company: str, role: str, contact: dict, bullets: list[str]) -> str:
     """The email, in the five-paragraph shape the sent corpus measures.
 
@@ -87,7 +96,7 @@ def _body(company: str, role: str, contact: dict, bullets: list[str]) -> str:
         "be grateful for the chance to hear how you approach it. I've "
         "attached my resume for context.",
         "Thank you for your time, and I hope to speak with you soon.",
-        "Best regards,\nIan Liu\nicl2016@nyu.edu | REDACTED",
+        f"Best regards,\n{_signoff()}",
     ])
 
 

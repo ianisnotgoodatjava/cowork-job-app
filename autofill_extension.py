@@ -104,9 +104,9 @@ function fill(){
 }
 
 function banner(total){
- if(document.getElementById('ianliu-autofill-note')) return;
+ if(document.getElementById('jobtracker-autofill-note')) return;
  const d=document.createElement('div');
- d.id='ianliu-autofill-note';
+ d.id='jobtracker-autofill-note';
  d.textContent='Autofilled '+total+' field(s). Answer work authorization, '
    +'sponsorship and availability yourself. Nothing was submitted.';
  d.style.cssText='position:fixed;bottom:16px;right:16px;z-index:2147483647;'

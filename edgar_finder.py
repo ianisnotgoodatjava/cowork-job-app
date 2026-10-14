@@ -34,8 +34,24 @@ import urllib.request
 
 _FTS = "https://efts.sec.gov/LATEST/search-index"
 _ARCHIVE = "https://www.sec.gov/Archives/edgar/data"
-# The SEC requires a real contact address in the User-Agent.
-_UA = "Ian Liu icl2016@nyu.edu"
+def _user_agent() -> str:
+    """The SEC requires a real name and address in the User-Agent, so this
+    comes from your own profile rather than being hard-coded."""
+    import json
+    try:
+        with open("resume_bank.json", encoding="utf-8") as f:
+            p = json.load(f).get("profile", {})
+        name, email = p.get("name", ""), p.get("email", "")
+    except (OSError, ValueError):
+        name = email = ""
+    if not (name and email):
+        raise SystemExit(
+            "EDGAR needs a real contact in the User-Agent. Set profile.name "
+            "and profile.email in resume_bank.json.")
+    return f"{name} {email}"
+
+
+_UA = _user_agent()
 
 # Forms that name the people running a strategy.
 DEFAULT_FORMS = "485BPOS,N-CSR,N-CSRS,DEF 14A"

@@ -27,7 +27,24 @@ _FOLLOW_UP_RE = re.compile(r"(?i)^\s*(re:|fwd:|following up)")
 _FIRST_TOUCH_RE = re.compile(r"(?i)^\s*(recent\s+)?nyu graduate")
 
 # Your own addresses. Drafts to these are notes to self, never outreach.
-OWN_ADDRESSES = {"icl2016@nyu.edu", "ianliu2002@gmail.com"}
+def _own_addresses() -> set:
+    """Your own addresses, so mail to yourself is never read as a contact.
+    From .env (OWN_EMAIL, comma-separated) or resume_bank.json."""
+    import json
+    import os
+    found = {a.strip().lower() for a in
+             os.environ.get("OWN_EMAIL", "").split(",") if a.strip()}
+    try:
+        with open("resume_bank.json", encoding="utf-8") as f:
+            email = json.load(f).get("profile", {}).get("email", "")
+        if email:
+            found.add(email.strip().lower())
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+OWN_ADDRESSES = _own_addresses()
 
 
 def _address(value: str) -> str:

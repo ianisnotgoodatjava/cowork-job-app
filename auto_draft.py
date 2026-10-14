@@ -441,39 +441,18 @@ def draft_for_row(client, row: dict) -> dict:
     return fields
 
 
-def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
-        out_dir: str = OUT_DIR, create_drafts: bool = False,
-        new_only: bool = False, write_link: bool = True,
-        days_back: int | None = None,
-        skip_interviewing: bool = True,
-        prefer: str | None = None,
-        exclude: str | None = None) -> None:
-    # The credential's type picks the path -- see _credential(). A metered
-    # key goes over the API because it is faster; a subscription token has
-    # to go through the CLI, because over the API it is capped at Haiku,
-    # which cannot use the web search this step is built around.
-    client = None
-    if _credential() == "api":
-        try:
-            import anthropic
-        except ImportError:
-            raise SystemExit("pip install anthropic")
-        client = anthropic.Anthropic()
-    elif not _cli_ready():
-        raise SystemExit(
-            "No way to reach Claude, so the research step cannot run.\n"
-            "\n"
-            "Either:\n"
-            "  run `claude` in a terminal and then `/login`  (no extra cost —\n"
-            "  uses the subscription you already pay for), or\n"
-            "  put ANTHROPIC_API_KEY in .env  (a few cents per application)."
-        )
+def select_targets(rows: list[dict], limit: int, min_fit: float,
+                   new_only: bool, days_back: int | None,
+                   prefer: str | None, exclude: str | None,
+                   skip_interviewing: bool) -> tuple[list[dict], list[dict]]:
+    """Which applications to spend research on, and in what order.
 
+    Returns (eligible_rows, targets). Separated from run() so the ranking can
+    be read -- and tested -- without a Claude credential or a Gmail client
+    in the way.
+    """
     import batch_outreach
     import findability
-
-    rows = [r for r in sheets.list_rows()
-            if status_mod.is_open(r.get("Status", ""))]
 
     # A company you are already interviewing at does not need a cold email
     # to a stranger on the desk -- it needs the interview to go well. And
@@ -553,6 +532,41 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         targets.append(row)
         if len(targets) >= limit:
             break
+    return rows, targets
+
+
+def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
+        out_dir: str = OUT_DIR, create_drafts: bool = False,
+        new_only: bool = False, write_link: bool = True,
+        days_back: int | None = None,
+        skip_interviewing: bool = True,
+        prefer: str | None = None,
+        exclude: str | None = None) -> None:
+    # The credential's type picks the path -- see _credential(). A metered
+    # key goes over the API because it is faster; a subscription token has
+    # to go through the CLI, because over the API it is capped at Haiku,
+    # which cannot use the web search this step is built around.
+    client = None
+    if _credential() == "api":
+        try:
+            import anthropic
+        except ImportError:
+            raise SystemExit("pip install anthropic")
+        client = anthropic.Anthropic()
+    elif not _cli_ready():
+        raise SystemExit(
+            "No way to reach Claude, so the research step cannot run.\n"
+            "\n"
+            "Either:\n"
+            "  run `claude` in a terminal and then `/login`  (no extra cost —\n"
+            "  uses the subscription you already pay for), or\n"
+            "  put ANTHROPIC_API_KEY in .env  (a few cents per application)."
+        )
+
+    rows, targets = select_targets(
+        [r for r in sheets.list_rows() if status_mod.is_open(r.get("Status", ""))],
+        limit=limit, min_fit=min_fit, new_only=new_only, days_back=days_back,
+        prefer=prefer, exclude=exclude, skip_interviewing=skip_interviewing)
 
     if new_only and not targets:
         print("nothing new to research")

@@ -17,11 +17,19 @@ def parse_date(value: str) -> datetime.date | None:
         except ValueError:
             continue
 
+    # Supply the year before parsing rather than after. Letting strptime
+    # default the year is deprecated in 3.13 and changes behaviour in 3.15,
+    # and its placeholder year is not a leap year, so "2/29" failed to parse
+    # at all.
     try:
         today = datetime.date.today()
-        parsed = datetime.datetime.strptime(value, "%m/%d").replace(year=today.year).date()
-        if parsed > today:
-            parsed = parsed.replace(year=today.year - 1)
-        return parsed
+        parsed = datetime.datetime.strptime(
+            f"{value}/{today.year}", "%m/%d/%Y").date()
     except ValueError:
         return None
+    if parsed > today:
+        try:
+            parsed = parsed.replace(year=today.year - 1)
+        except ValueError:          # 29 Feb in a non-leap previous year
+            return None
+    return parsed

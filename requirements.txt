@@ -3,3 +3,6 @@ google-auth-httplib2>=0.2.0
 google-auth-oauthlib>=1.2.0
 python-dotenv>=1.0.0
 scikit-learn==1.9.0
+
+# Tests
+pytest>=8.0

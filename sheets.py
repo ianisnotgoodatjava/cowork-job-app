@@ -14,6 +14,18 @@ _COL_LETTER = {h: chr(ord("A") + i) for i, h in enumerate(HEADERS)}
 
 _svc = None
 
+# The sheet read back, for the life of one process. 38 call sites across the
+# project ask for every row, and a pipeline run walks most of them: each was a
+# fresh round trip costing about half a second, for data that does not change
+# between them. Invalidated by every writer below -- a stale cache would have
+# a scanner decide against rows another step had already rewritten.
+_rows_cache: list | None = None
+
+
+def _invalidate() -> None:
+    global _rows_cache
+    _rows_cache = None
+
 
 def _service():
     # Every caller in a run shares one client instead of rebuilding it (and
@@ -29,6 +41,8 @@ def ensure_headers():
     headers (e.g. a pre-existing sheet), only appends any HEADERS entries
     that are missing, as new columns after the last existing one — never
     overwrites or reorders existing columns."""
+    # Anything read back now would predate this write.
+    _invalidate()
     svc = _service()
     result = svc.spreadsheets().values().get(
         spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!A1:Z1"
@@ -88,6 +102,8 @@ def append_job_row(job: dict) -> int:
     Finding the true last row ourselves and writing there directly has no such
     ambiguity.
     """
+    # Anything read back now would predate this write.
+    _invalidate()
     ensure_headers()
     job = _with_aliases(dict(job))
     row = [job.get(h, "") for h in HEADERS]
@@ -110,6 +126,8 @@ def update_row(row_number: int, updates: dict):
     tracker was trimmed to A-J, and a scanner that still passes "Notes" should
     record the status it came for instead of failing the whole write.
     """
+    # Anything read back now would predate this write.
+    _invalidate()
     data = [
         {"range": f"{SHEET_TAB}!{_COL_LETTER[header]}{row_number}",
          "values": [[value]]}
@@ -135,6 +153,8 @@ def update_rows(patches: dict[int, dict], chunk: int = 500) -> int:
 
     Returns the number of cell ranges written.
     """
+    # Anything read back now would predate this write.
+    _invalidate()
     data = [
         {"range": f"{SHEET_TAB}!{_COL_LETTER[header]}{row_number}",
          "values": [[value]]}
@@ -169,8 +189,18 @@ def _with_aliases(row: dict) -> dict:
     return row
 
 
-def list_rows() -> list[dict]:
-    """Returns all logged applications as a list of dicts, in sheet order."""
+def list_rows(refresh: bool = False) -> list[dict]:
+    """Returns all logged applications as a list of dicts, in sheet order.
+
+    Served from the per-process cache unless `refresh`, or unless something
+    has been written since. Callers get a copy: several of them annotate the
+    dicts they are handed, and handing out the cached objects would let one
+    step's bookkeeping show up in another's input.
+    """
+    global _rows_cache
+    if _rows_cache is not None and not refresh:
+        return [dict(row) for row in _rows_cache]
+
     svc = _service()
     result = svc.spreadsheets().values().get(
         spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!A2:Z"
@@ -179,7 +209,8 @@ def list_rows() -> list[dict]:
     for i, values in enumerate(result.get("values", []), start=2):
         padded = values + [""] * (len(HEADERS) - len(values))
         rows.append(_with_aliases({"row_number": i, **dict(zip(HEADERS, padded))}))
-    return rows
+    _rows_cache = rows
+    return [dict(row) for row in rows]
 
 
 def get_row(row_number: int) -> dict:
@@ -211,6 +242,8 @@ def delete_rows(row_numbers: list[int]) -> int:
     still queued behind it — the row numbers passed in all refer to the same
     snapshot, and renumbering mid-loop would silently delete the wrong rows.
     """
+    # Anything read back now would predate this write.
+    _invalidate()
     targets = sorted({n for n in row_numbers if n and n > 1}, reverse=True)
     if not targets:
         return 0
@@ -237,6 +270,8 @@ def sort_by_applied_date() -> None:
     column is free-text with mixed formats ('6/18', '6/18/2026') that a
     lexicographic sheet sort would order wrongly.
     """
+    # Anything read back now would predate this write.
+    _invalidate()
     from date_utils import parse_date
     import datetime
 

@@ -10,7 +10,9 @@ confidence tests are the clearest: the obvious implementation reads the word
 "inferred" in the confidence note and gets the answer exactly backwards.
 """
 
+import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -230,3 +232,90 @@ class TestStripQuote:
     def test_handles_empty(self):
         assert followup_model._strip_quote("") == ""
         assert followup_model._strip_quote(None) == ""
+
+
+class TestIdentity:
+    """Who the tool thinks you are. Wrong here and a reply from you reads as
+    a reply from the company, which is the one thing the thread logic must
+    not get wrong."""
+
+    def _pattern(self, monkeypatch, tmp_path, env=None, profile=None):
+        import config
+        monkeypatch.chdir(tmp_path)
+        for key in ("OWN_EMAIL", "OWN_NAME"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in (env or {}).items():
+            monkeypatch.setenv(key, value)
+        if profile is not None:
+            (tmp_path / "resume_bank.json").write_text(
+                json.dumps({"profile": profile}))
+        return config._me_pattern()
+
+    def test_profile_supplies_name_and_email(self, monkeypatch, tmp_path):
+        pattern = self._pattern(monkeypatch, tmp_path,
+                                profile={"name": "Jane Doe",
+                                         "email": "jane@real.test"})
+        assert re.search(pattern, "Jane Doe <jane@real.test>", re.I)
+        assert not re.search(pattern, "Bob <bob@acme.com>", re.I)
+
+    def test_name_matches_without_a_space_or_with_a_dot(self, monkeypatch, tmp_path):
+        """Mail also goes out as janedoe@ and jane.doe@."""
+        pattern = self._pattern(monkeypatch, tmp_path,
+                                profile={"name": "Jane Doe",
+                                         "email": "jane@real.test"})
+        for variant in ("janedoe@other.test", "jane.doe@other.test"):
+            assert re.search(pattern, variant, re.I), variant
+
+    def test_placeholder_env_does_not_override_a_real_profile(
+            self, monkeypatch, tmp_path):
+        """.env is copied from .env.example, so OWN_EMAIL arrives as
+        'you@example.com'. Taking that literally recognises nobody."""
+        pattern = self._pattern(
+            monkeypatch, tmp_path,
+            env={"OWN_EMAIL": "you@example.com", "OWN_NAME": "Your Name"},
+            profile={"name": "Jane Doe", "email": "jane@real.test"})
+        assert re.search(pattern, "jane@real.test", re.I)
+        assert not re.search(pattern, "you@example.com", re.I)
+
+    def test_real_env_value_wins_over_the_profile(self, monkeypatch, tmp_path):
+        pattern = self._pattern(
+            monkeypatch, tmp_path,
+            env={"OWN_EMAIL": "second@real.test"},
+            profile={"name": "Jane Doe", "email": "jane@real.test"})
+        assert re.search(pattern, "second@real.test", re.I)
+
+    def test_no_identity_matches_nothing_rather_than_raising(
+            self, monkeypatch, tmp_path, capsys):
+        """Evaluated on `import config`, which happens on the way into the
+        setup command. Raising would make the fix unreachable."""
+        pattern = self._pattern(monkeypatch, tmp_path, profile={})
+        assert not re.search(pattern, "anyone@anywhere.com", re.I)
+        assert "no identity configured" in capsys.readouterr().err
+
+
+class TestHeaderAliases:
+    """The original sheet spells the date column 'Applied Draes'. Nobody
+    cloning this should have to reproduce a typo."""
+
+    def test_legacy_spelling_gains_the_canonical_one(self):
+        import sheets
+        row = sheets._with_aliases({"Applied Draes": "6/27/2026"})
+        assert row["Applied Date"] == "6/27/2026"
+
+    def test_canonical_spelling_gains_the_legacy_one(self):
+        """So the forty call sites written against the typo keep working on a
+        sheet created today."""
+        import sheets
+        row = sheets._with_aliases({"Applied Date": "6/27/2026"})
+        assert row["Applied Draes"] == "6/27/2026"
+
+    def test_existing_value_is_not_overwritten(self):
+        import sheets
+        row = sheets._with_aliases({"Applied Draes": "a", "Applied Date": "b"})
+        assert (row["Applied Draes"], row["Applied Date"]) == ("a", "b")
+
+    def test_a_fresh_sheet_gets_the_better_names(self):
+        import config
+        assert "Applied Date" in config.CANONICAL
+        assert "Applied Draes" not in config.CANONICAL
+        assert len(config.CANONICAL) == len(config.HEADERS)

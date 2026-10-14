@@ -129,3 +129,88 @@ class TestRepeatContacts:
     def test_an_unknown_address_is_not_a_duplicate(self):
         assert recent_contacts.is_duplicate(
             "new@firm.com", "Recent NYU Graduate Inquiring about X", {}) is None
+
+
+class TestSheetCache:
+    """The row cache, and the invalidation that makes it safe.
+
+    38 call sites ask for every row and a pipeline run walks most of them, so
+    the cache is worth roughly fourteen seconds a run. The risk it introduces
+    is the only thing worth testing: a read that predates a write would have
+    one step decide against rows another step had already rewritten.
+    """
+
+    def _fake_sheet(self, monkeypatch, rows):
+        import sheets
+        calls = {"n": 0}
+
+        def fake_service():
+            class Values:
+                def get(self, **kw):
+                    calls["n"] += 1
+                    return self
+
+                def execute(self):
+                    return {"values": rows}
+
+            class Spreadsheets:
+                def values(self):
+                    return Values()
+
+            class Svc:
+                def spreadsheets(self):
+                    return Spreadsheets()
+
+            return Svc()
+
+        monkeypatch.setattr(sheets, "_service", fake_service)
+        sheets._invalidate()
+        return calls
+
+    def test_second_read_does_not_hit_the_api(self, monkeypatch):
+        import sheets
+        calls = self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
+        sheets.list_rows()
+        sheets.list_rows()
+        sheets.list_rows()
+        assert calls["n"] == 1
+
+    def test_refresh_forces_a_reread(self, monkeypatch):
+        import sheets
+        calls = self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
+        sheets.list_rows()
+        sheets.list_rows(refresh=True)
+        assert calls["n"] == 2
+
+    def test_invalidate_forces_a_reread(self, monkeypatch):
+        import sheets
+        calls = self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
+        sheets.list_rows()
+        sheets._invalidate()
+        sheets.list_rows()
+        assert calls["n"] == 2
+
+    def test_callers_cannot_mutate_each_others_rows(self, monkeypatch):
+        # Several callers annotate the dicts they are handed. Sharing the
+        # cached objects would let one step's bookkeeping appear in another
+        # step's input.
+        import sheets
+        self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
+        first = sheets.list_rows()
+        first[0]["scratch"] = "x"
+        assert "scratch" not in sheets.list_rows()[0]
+
+    def test_every_writer_invalidates(self):
+        # The cache is only safe while this holds, and a new writer added
+        # without the call is exactly the change that would break it quietly.
+        import ast
+        import inspect
+
+        import sheets
+        tree = ast.parse(inspect.getsource(sheets))
+        writers = {"append_job_row", "update_row", "update_rows",
+                   "delete_rows", "sort_by_applied_date", "ensure_headers"}
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in writers:
+                assert "_invalidate" in ast.dump(node), (
+                    f"sheets.{node.name} writes without invalidating the cache")

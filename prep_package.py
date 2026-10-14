@@ -137,6 +137,15 @@ def _ats_answers(bank: dict, company: str, role: str, parsed: dict) -> str:
         "resume_bank.json and this answers itself next time."
     )
 
+    # The prose answers are personal narrative, so they live in the bank
+    # rather than in this file -- the repository is public and the bank is
+    # not. A missing one says which key to add rather than rendering blank.
+    answers = bank.get("answers", {})
+
+    def answer(key: str) -> str:
+        return answers.get(key) or (
+            f"**FILL IN** — add `answers.{key}` to resume_bank.json.")
+
     return f"""# ATS answers — {role} @ {company}
 
 Copy-paste ready. Read them before pasting; the "why this company" answer is a
@@ -153,11 +162,7 @@ not require sponsorship.
 
 ## Why this company / why this role
 I am drawn to {company} because this role sits exactly where my training and my
-interests meet. My background is quantitative — a mathematics and economics
-degree from NYU — but the work I have enjoyed most has been applied: rotating
-across rates, EM FX and quant desks at REDACTED, writing daily market
-commentary, and building the backtests behind a G10 momentum and carry
-strategy. This posting asks for:
+interests meet. {answer('why_this_company_opening')} This posting asks for:
 {hooks}
 
 That is the work I have been deliberately moving toward, and {company} is a
@@ -174,17 +179,10 @@ reach on my own yet.
 {project['text']}
 
 ## Why are you leaving / looking?
-I joined REDACTED to get close to how risk is actually priced, and that has been
-genuinely useful grounding. I am looking now because I want to apply the
-quantitative side of my background more directly — the modelling, research and
-markets work I did at REDACTED and have kept up since — and this role does
-that in a way my current seat cannot.
+{answer('why_leaving')}
 
 ## Greatest strength (short answer)
-I am comfortable being the person who does the unglamorous data work and then
-turns it into something decision-useful — at REDACTED that meant
-building ML pipelines over 150,000 documents that saved the analyst teams
-20 hours a week.
+{answer('greatest_strength')}
 """
 
 

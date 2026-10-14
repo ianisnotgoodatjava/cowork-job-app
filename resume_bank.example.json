@@ -86,5 +86,33 @@
         "impact"
       ]
     }
-  ]
+  ],
+  "answers": {
+    "_comment": "Prose answers for the ATS prep pack. Personal narrative, so it lives here rather than in prep_package.py. {company} is substituted at render time.",
+    "why_this_company_opening": "One or two sentences on your background and the work you have enjoyed most.",
+    "why_leaving": "Why you are looking, in your own words.",
+    "greatest_strength": "A strength, with one concrete result attached."
+  },
+  "background": {
+    "_comment": "Prompt-ready bios. They name employers and a bank he asks not to be named in drafts, so they live here, not in the prompts themselves -- the repository is public and this file is not.",
+    "outreach": "- Your degree, school and graduation date.\n- Your current role and employer.\n- Earlier roles worth mentioning, and how to refer to them.\n- Your tools, languages and work authorization.",
+    "job_search": "- Your degree and school.\n- Your current role.\n- Earlier roles.\n- Tools, languages, work authorization.",
+    "evidence": [
+      {
+        "pattern": "\\b(model|quantitative|forecast)\\b",
+        "text": "a line of your own evidence for quantitative roles"
+      },
+      {
+        "pattern": "\\b(credit|bond|structured)\\b",
+        "text": "a line of your own evidence for credit roles"
+      }
+    ],
+    "opener": "My name is Your Name. One sentence on your degree and current role.",
+    "signature_contact": "you@example.com | 000-000-0000",
+    "never_use": [
+      "you@example.com",
+      "000-000-0000"
+    ],
+    "evidence_fallback": "a general line of experience, used when no pattern matches"
+  }
 }

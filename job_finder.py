@@ -41,15 +41,7 @@ _FIELD_RE = re.compile(r"^===\s*JOB\s*===\s*$", re.M)
 SYSTEM = """You find live job postings for Ian Liu and report them plainly.
 
 WHO HE IS
-- B.A. Mathematics and Economics, NYU, December 2024.
-- Currently Underwriting Assistant, General Property at REDACTED.
-- REDACTED Sales & Trading Summer Analyst, Taipei: Rates, EM FX and FX
-  Quant desks; daily market commentary; FX volatility with ARMA-GARCH;
-  backtested G10 rates momentum and currency carry.
-- REDACTED IB intern: project finance, infrastructure, renewables.
-- REDACTED: supervised-ML document pipelines in Python.
-- Python, R, Excel. Native English and Mandarin. US and Taiwan citizenship —
-  no sponsorship needed.
+{BACKGROUND}
 
 WHAT COUNTS AS A FIT
 Entry level to roughly two years of experience. New York preferred, elsewhere
@@ -79,6 +71,17 @@ URL: <direct link to the posting itself>
 POSTED: <date or "unknown">
 WHY: <one sentence on why it fits his background specifically>
 NOTE: <anything uncertain — expired, seniority ambiguous, aggregator link>"""
+
+
+def _background() -> str:
+    """His bio for the search prompt, from the bank rather than this file."""
+    import resume_bank
+    text = resume_bank.load().get("background", {}).get("job_search")
+    if not text:
+        raise SystemExit(
+            "No `background.job_search` in resume_bank.json; see "
+            "resume_bank.example.json for the shape.")
+    return text
 
 
 def _parse_jobs(text: str) -> list[dict]:
@@ -154,7 +157,8 @@ def run(areas: list[str] | None = None, per_area: int = 4,
             with client.messages.stream(
                 model=MODEL,
                 max_tokens=8000,
-                system=SYSTEM,
+                system=SYSTEM.replace(
+                    "{BACKGROUND}", _background()),
                 thinking={"type": "adaptive"},
                 output_config={"effort": "high"},
                 tools=[{"type": "web_search_20260209", "name": "web_search",

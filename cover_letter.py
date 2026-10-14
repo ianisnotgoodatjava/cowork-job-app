@@ -19,8 +19,8 @@ OUT_DIR = os.path.join("logs", "drafts", "cover_letters")
 
 
 def _profile(bank_path: str = BANK) -> dict:
-    with open(bank_path) as f:
-        return json.load(f)["profile"]
+    import resume_bank
+    return resume_bank.profile(bank_path)
 
 
 def _blocks(path: str) -> list[str]:

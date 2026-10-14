@@ -70,8 +70,8 @@ _WORD_RE = re.compile(r"[a-z][a-z+#.]{2,}")
 
 
 def load_bank(path: str = BANK_FILE) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    import resume_bank
+    return resume_bank.load(path)
 
 
 def _tokens(text: str) -> set[str]:

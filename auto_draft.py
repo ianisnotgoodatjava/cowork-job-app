@@ -76,21 +76,7 @@ _FIELD_RE = re.compile(r"^===\s*([A-Z_0-9]+)\s*===\s*$", re.M)
 SYSTEM = """You research two contacts and write a cold outreach email to each, for Ian Liu.
 
 WHO IAN IS
-- B.A. Mathematics and Economics, NYU, December 2024. REDACTED.
-- Currently Underwriting Assistant, General Property at REDACTED (Jun 2025-).
-- A sales & trading summer internship in Taipei (Jun-Aug 2024): rates, EM FX
-  and FX quant desks; daily market commentary; FX volatility with ARMA-GARCH;
-  backtested G10 rates momentum and currency carry.
-  Refer to this as markets or FX experience. Do NOT name the bank: he has
-  asked twice not to, and "REDACTED" appears in generated drafts and in none
-  of the 345 emails he has actually sent.
-- REDACTED, Investment Banking Fall Analyst Intern (Aug-Dec 2023):
-  project finance and infrastructure analysis, renewable energy and EV
-  charging, capital raising materials.
-- REDACTED, Data Operations Intern (Jun-Aug 2023): supervised-ML
-  document pipelines in Python and JavaScript over 150,000 documents.
-- Python, R, Excel, Tableau. Native English and Mandarin. US and Taiwan
-  citizenship — authorised to work in the US, no sponsorship needed.
+{BACKGROUND}
 
 HOW HE WRITES
 Plain, specific, unhurried. No exclamation marks, no "I am incredibly
@@ -361,6 +347,17 @@ def _stream_with_retry(client, max_attempts: int = 6, **kwargs):
             time.sleep(wait)
 
 
+def _background(key: str) -> str:
+    """The bio for a prompt, from the bank. Personal, so not in this file."""
+    import resume_bank
+    text = resume_bank.load().get("background", {}).get(key)
+    if not text:
+        raise SystemExit(
+            f"No `background.{key}` in resume_bank.json. The prompt needs a "
+            f"short bio; see resume_bank.example.json for the shape.")
+    return text
+
+
 def draft_for_row(client, row: dict) -> dict:
     """Researches and writes one email. Returns the parsed fields."""
     company = (row.get("Company") or "").strip()
@@ -403,7 +400,8 @@ def draft_for_row(client, row: dict) -> dict:
     examples = style_profile.exemplar_block(
         company=company, role=role,
         area=(row.get("Required Skills & Experience") or "")[:200])
-    system = SYSTEM.replace("{STYLE_PROFILE}", "\n\n".join(
+    system = SYSTEM.replace("{BACKGROUND}", _background("outreach"))
+    system = system.replace("{STYLE_PROFILE}", "\n\n".join(
         part for part in (measured, examples) if part) or
         'He asks for 15-20 minutes and signs off "Best regards, Ian Liu".')
 

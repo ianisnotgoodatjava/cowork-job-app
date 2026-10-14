@@ -77,6 +77,19 @@ def _bullets_for(row: dict, bank: dict, n: int = 3) -> list[str]:
     return [b["text"] for _, b in ranked[:n]]
 
 
+def _opener() -> str:
+    """The two-sentence self-introduction, from the bank rather than this
+    file: it names his school and employer and the repository is public."""
+    import resume_bank
+    return resume_bank.load().get("background", {}).get("opener", "")
+
+
+def _signature() -> str:
+    """The contact line under the sign-off, from the bank for the same reason."""
+    import resume_bank
+    return resume_bank.load().get("background", {}).get("signature_contact", "")
+
+
 def _draft(row: dict, bank: dict) -> str:
     company = row.get("Company", "").strip()
     role = row.get("Position", "").strip()
@@ -123,8 +136,7 @@ Subject: Recent NYU Graduate Inquiring about {role} at {company}
 ---------------------------------------------------------------------------
 Dear [[NAME]],
 
-My name is Ian Liu. I graduated from NYU with a degree in Mathematics and
-Economics and currently work at REDACTED. I'm reaching out to learn more about
+{_opener()} I'm reaching out to learn more about
 your work on [[TEAM]] at {company}.
 
 {hook}
@@ -142,7 +154,7 @@ Thank you for your time and consideration.
 
 Best regards,
 Ian Liu
-icl2016@nyu.edu | REDACTED
+{_signature()}
 ---------------------------------------------------------------------------
 
 Other bullets that fit this posting, if the one above is not the right lead:

@@ -14,7 +14,7 @@ separates his writing from generated writing, and use it as a gate. The
 separation turned out to be blunt and measurable rather than subtle.
 Comparing 12 generated drafts against 345 real emails:
 
-  signature   every generated draft ended "icl2016@nyu.edu | REDACTED".
+  signature   every generated draft ended with his contact block.
               That appears in 0 of 345 real ones -- he signs off "Best
               regards, Ian Liu" and stops. A perfect discriminator on its
               own, and pure model invention.
@@ -24,7 +24,7 @@ Comparing 12 generated drafts against 345 real emails:
               emails, since by definition half of them fall outside it.
   vocabulary  "problem", "view", "question", "partly", "hoped", "liked",
               "you'd" all appear repeatedly in generated text and never in
-              his. So does "REDACTED", which he asked twice not to mention.
+              his. So does the bank he asked twice not to mention.
 
 None of that needed a trained model to find, and a rule that names the
 specific failure is more useful at generation time than a probability.
@@ -34,9 +34,13 @@ import re
 
 
 # Present in generated drafts, absent from all 345 real emails.
-_NEVER_USED = (
-    "icl2016@nyu.edu", "REDACTED", "redacted",
-)
+def _never_used() -> tuple:
+    """Terms that must not appear in a draft -- his own contact details, and a
+    bank he asked twice not to be named. They are personal, so they come from
+    resume_bank.json rather than this file."""
+    import resume_bank
+    return tuple(t.lower() for t in
+                 resume_bank.load().get("background", {}).get("never_use", []))
 
 # Words the generator reaches for that he does not. Not banned outright --
 # one is fine, a cluster means the register has drifted.
@@ -69,7 +73,7 @@ def check(body: str, subject: str = "") -> list[str]:
     lower = text.lower()
     problems = []
 
-    for token in _NEVER_USED:
+    for token in _never_used():
         if token in lower:
             problems.append(
                 f'contains "{token}" — appears in 0 of 345 emails he has sent')

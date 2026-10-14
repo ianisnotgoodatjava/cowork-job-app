@@ -77,47 +77,30 @@ def _first_duty(jd: str) -> str:
 
 # Ian's experience, keyed by what a posting is asking for. Ordered: the first
 # match wins, so the most specific claims sit at the top.
-_EVIDENCE = [
-    (r"\b(model|modell?ing|quantitative|statistic|forecast|econometric|"
-     r"regression|optimi[sz])\b",
-     "researched FX volatility with ARMA-GARCH models at REDACTED and "
-     "backtested G10 rates momentum and currency carry strategies, optimising "
-     "the factor set rather than accepting the first result that looked good"),
-    (r"\b(fixed income|credit|bond|securit|abs|cmbs|rmbs|clo|structured)\b",
-     "rotated across the Rates Trading and Emerging Markets FX desks at Bank "
-     "REDACTED and wrote the daily commentary on China's and Japan's currency "
-     "and fixed income markets"),
-    (r"\b(energy|power|renewable|commodit|solar|infrastructure|utilit)\b",
-     "evaluated infrastructure and renewable energy companies under project "
-     "finance assumptions at REDACTED, and researched the "
-     "performance and sustainability metrics of impact and ESG funds"),
-    (r"\b(portfolio|allocation|fund|asset management|investment)\b",
-     "built and optimised backtested portfolios for G10 rates momentum and "
-     "currency carry, and processed roughly 150,000 fund manager documents "
-     "into comparable data at REDACTED"),
-    (r"\b(trading|trader|sales|desk|execution|market making|liquidity)\b",
-     "spent a summer on the Rates, Emerging Markets FX and FX Quant desks at "
-     "REDACTED, writing the morning commentary the desk traded off"),
-    (r"\b(risk|underwrit|exposure|pricing|insurance)\b",
-     "review property submissions and shadow underwriters pricing risk at "
-     "REDACTED, which is diligence with money behind it"),
-    (r"\b(data|python|sql|automation|pipeline|analytics|machine learning)\b",
-     "designed supervised machine-learning pipelines in Python and JavaScript "
-     "over roughly 150,000 documents at REDACTED"),
-]
+def _evidence() -> list[tuple]:
+    """(pattern, line) pairs matching a posting to a line of his experience.
 
-_FALLBACK = ("rotated across the Rates, Emerging Markets FX and FX Quant desks "
-             "at REDACTED and have done quantitative work in Python and R "
-             "since")
+    The lines name employers, so they live in resume_bank.json rather than
+    here -- the repository is public and the bank is not.
+    """
+    import resume_bank
+    rows = resume_bank.load().get("background", {}).get("evidence", [])
+    return [(r["pattern"], r["text"]) for r in rows]
+
+
+def _fallback() -> str:
+    """Used when the posting matches none of the patterns."""
+    import resume_bank
+    return resume_bank.load().get("background", {}).get("evidence_fallback", "")
 
 
 def _evidence_for(row: dict) -> str:
     blob = (f"{row.get('Position','')} "
             f"{row.get('Required Skills & Experience','')}").lower()
-    for pattern, claim in _EVIDENCE:
+    for pattern, claim in _evidence():
         if re.search(pattern, blob):
             return claim
-    return _FALLBACK
+    return _fallback()
 
 
 def build_hook(row: dict, contact: dict) -> str:

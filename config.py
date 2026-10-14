@@ -46,6 +46,16 @@ def _me_pattern() -> str:
 # as a reply from the company.
 ME_RE = re.compile(_me_pattern(), re.I)
 
+# The sheet this was built against predates the project and carries two
+# spellings nothing should have to reproduce: a typo in the date column and a
+# lowercase "location". HEADERS stays in that order because rows are read
+# positionally, but a sheet created from scratch gets CANONICAL instead, and
+# sheets.list_rows exposes both spellings so every caller works either way.
+RENAMED = {
+    "Applied Draes": "Applied Date",
+    "location": "Location",
+}
+
 HEADERS = [
     "Company",
     "Position",
@@ -60,6 +70,9 @@ HEADERS = [
     "Posted",
     "Contact",
 ]
+
+# What a fresh sheet gets: same order, better names.
+CANONICAL = [RENAMED.get(h, h) for h in HEADERS]
 
 # Prefilter for "does this sent email look like cold networking outreach" —
 # shared by the outreach corpus builder and the scanners that find warm leads

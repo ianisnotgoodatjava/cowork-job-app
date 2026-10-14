@@ -158,6 +158,11 @@ def cmd_follow_ups(args):
     follow_up.scan(days_back=args.days, min_age_days=args.min_age)
 
 
+def cmd_setup(args):
+    import setup_wizard
+    setup_wizard.run(create=args.create_sheet, title=args.title)
+
+
 def cmd_stage_drafts(args):
     import stage_drafts
     stage_drafts.run(dry_run=not args.write, create_drafts=args.drafts,
@@ -823,6 +828,13 @@ def main():
     p.add_argument("--days", type=int, default=180)
     p.add_argument("--min-age", type=int, default=7, help="Only flag sends older than this many days")
     p.set_defaults(func=cmd_follow_ups)
+
+    p = sub.add_parser("setup",
+                       help="Check what this clone still needs, and optionally create the tracking sheet")
+    p.add_argument("--create-sheet", action="store_true",
+                   help="Create a new Google Sheet in your Drive and write its id to .env")
+    p.add_argument("--title", default="Job Applications", help="Title for the new sheet")
+    p.set_defaults(func=cmd_setup)
 
     p = sub.add_parser("stage-drafts",
                        help="Name the contact on the sheet and create Gmail drafts from research already saved")

@@ -11,7 +11,6 @@ letter and a resume sent together can never disagree about the phone number.
 """
 
 import datetime
-import json
 import os
 
 BANK = "resume_bank.json"

@@ -45,10 +45,10 @@ def _first_duty(jd: str) -> str:
         return ""
     try:
         import enrich
-        if enrich._is_benefits(jd):
-            return ""
-    except Exception:
-        pass
+    except ImportError:
+        enrich = None          # the check is optional; the draft still works
+    if enrich is not None and enrich._is_benefits(jd):
+        return ""
     # Postings run their bullets together without punctuation, so a capital
     # letter is the only separator available. A naive split cuts inside proper
     # nouns: "market trends across North American Capacity" broke at "North"

@@ -107,10 +107,10 @@ def _draft(row: dict, bank: dict) -> str:
     # than leaving the paragraph blank.
     try:
         import enrich
-        if jd and enrich._is_benefits(jd):
-            jd = ""
-    except Exception:
-        pass
+    except ImportError:
+        enrich = None          # the check is optional; the draft still works
+    if enrich is not None and jd and enrich._is_benefits(jd):
+        jd = ""
     if jd:
         first_duty = re.split(r"(?<=[a-z])\s+(?=[A-Z])", jd)[0][:190].rstrip(" .,;")
         hook = (

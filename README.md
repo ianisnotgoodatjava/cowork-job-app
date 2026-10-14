@@ -72,6 +72,17 @@ note and gets the answer exactly backwards.
 
 ## One-time setup
 
+```bash
+python cli.py setup
+```
+
+Tells you which of the steps below are still outstanding, creates `.env` and
+`resume_bank.json` from the examples, and once you have Google credentials,
+`python cli.py setup --create-sheet` makes the tracking sheet in your own
+Drive with the right columns and writes its id into `.env`.
+
+The steps it is checking for:
+
 ### 1. Google Cloud project + APIs
 1. Go to https://console.cloud.google.com/ and create a new project (or use an existing one).
 2. Enable these APIs (search each in "APIs & Services" > "Library"):

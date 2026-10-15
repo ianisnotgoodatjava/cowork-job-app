@@ -28,3 +28,4 @@ sheet-backup-*.csv
 # Personal launchd agent: it hard-codes your home path.
 # jobtracker.plist.example is the template.
 com.*.jobtracker.plist
+logs/draft_headers.json

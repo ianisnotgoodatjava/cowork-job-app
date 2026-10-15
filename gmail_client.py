@@ -2,6 +2,7 @@
 Drafts are never auto-sent — you review and hit Send yourself in Gmail."""
 
 import base64
+import json
 import mimetypes
 import os
 import threading
@@ -276,6 +277,36 @@ _DRAFT_CACHE: dict = {}
 _BATCH_SIZE = 40
 _BATCH_PAUSE = 1.0
 
+# Headers kept across runs, keyed by draft id. Listing the ids is cheap -- one
+# quota unit a page, 0.9s for three hundred drafts -- while fetching each
+# header costs five, which is the whole 13s. Almost none of them changed since
+# the last run, so almost none need fetching again.
+#
+# The stored message id is what makes that safe. Gmail mints a new message id
+# every time a draft is edited while the draft id stays put, so a mismatch
+# means the body changed and the header has to be read again. Verified rather
+# than assumed: editing a probe draft moved its message id.
+_DRAFT_STORE = os.path.join("logs", "draft_headers.json")
+
+
+def _load_draft_store() -> dict:
+    try:
+        with open(_DRAFT_STORE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_draft_store(store: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_DRAFT_STORE), exist_ok=True)
+        tmp = _DRAFT_STORE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(store, f)
+        os.replace(tmp, _DRAFT_STORE)
+    except OSError:
+        pass
+
 
 def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
     """[{id, to, subject, date}] for drafts, batched and cached per process.
@@ -318,20 +349,32 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
             "Gmail would not return the draft list (rate limited). Nothing "
             "was read, so no caller can mistake this for an empty mailbox.")
 
-    ids, token = [], None
+    ids, message_ids, token = [], {}, None
     while True:
         params = {"userId": "me", "maxResults": 100, "pageToken": token}
         if query:
             params["q"] = query
         page = _page(params)
-        ids += [d["id"] for d in page.get("drafts", [])]
+        for d in page.get("drafts", []):
+            ids.append(d["id"])
+            message_ids[d["id"]] = (d.get("message") or {}).get("id", "")
         token = page.get("nextPageToken")
         if not token:
             break
 
+    store = {} if refresh else _load_draft_store()
     found: dict[str, dict] = {}
+    stale = []
+    for draft_id in ids:
+        cached = store.get(draft_id)
+        if cached and cached.get("message_id") == message_ids.get(draft_id):
+            found[draft_id] = {k: v for k, v in cached.items()
+                               if k != "message_id"}
+        else:
+            stale.append(draft_id)
+
     gone: set[str] = set()
-    pending = list(ids)
+    pending = list(stale)
     for attempt in range(5):
         if not pending:
             break
@@ -376,6 +419,12 @@ def draft_headers(query: str = "", refresh: bool = False) -> list[dict]:
             f"headers; {len(pending)} still failing after retries. Refusing to "
             f"hand back a partial list — callers treat a missing draft as no "
             f"draft.")
+
+    # Rebuilt from the ids just listed, so drafts deleted elsewhere drop out
+    # instead of accumulating forever.
+    _save_draft_store({
+        i: {**found[i], "message_id": message_ids.get(i, "")}
+        for i in ids if i in found})
 
     out = [found[i] for i in ids if i in found]
     _DRAFT_CACHE[query] = out

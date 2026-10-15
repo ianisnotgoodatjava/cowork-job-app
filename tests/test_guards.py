@@ -214,3 +214,105 @@ class TestSheetCache:
             if isinstance(node, ast.FunctionDef) and node.name in writers:
                 assert "_invalidate" in ast.dump(node), (
                     f"sheets.{node.name} writes without invalidating the cache")
+
+
+class TestDraftHeaderStore:
+    """The on-disk draft header cache, and what keeps it honest.
+
+    Listing draft ids costs one quota unit a page; reading each header costs
+    five, which was the whole thirteen seconds. Almost nothing changes between
+    runs, so almost nothing needs reading again -- 14.1s becomes 0.5s.
+
+    The stored message id is what makes that safe. Gmail mints a new message
+    id whenever a draft is edited while the draft id stays put, so a mismatch
+    means the content moved. That was verified against the live API before
+    this was built, not assumed.
+    """
+
+    def _gmail(self, monkeypatch, tmp_path, drafts, headers, fetched):
+        import gmail_client
+
+        class Drafts:
+            def list(self, **kw):
+                return self
+
+            def get(self, userId=None, id=None, format=None):
+                fetched.append(id)
+                return {"message": {"payload": {"headers": [
+                    {"name": "To", "value": headers[id]["to"]},
+                    {"name": "Subject", "value": headers[id]["subject"]},
+                    {"name": "Date", "value": "Mon, 1 Sep 2026 00:00:00 +0000"},
+                ]}}}
+
+            def execute(self):
+                return {"drafts": drafts}
+
+        class Batch:
+            def __init__(self, callback):
+                self._cb, self._items = callback, []
+
+            def add(self, request, request_id=None):
+                self._items.append((request_id, request))
+
+            def execute(self):
+                for rid, req in self._items:
+                    self._cb(rid, req, None)
+
+        class Users:
+            def drafts(self):
+                return Drafts()
+
+        class Svc:
+            def users(self):
+                return Users()
+
+            def new_batch_http_request(self, callback):
+                return Batch(callback)
+
+        monkeypatch.setattr(gmail_client, "_service", lambda: Svc())
+        monkeypatch.setattr(gmail_client, "_DRAFT_STORE",
+                            str(tmp_path / "draft_headers.json"))
+        monkeypatch.setattr(gmail_client, "_BATCH_PAUSE", 0)
+        gmail_client._DRAFT_CACHE.clear()
+        return gmail_client
+
+    def test_second_run_fetches_nothing(self, monkeypatch, tmp_path):
+        drafts = [{"id": "d1", "message": {"id": "m1"}}]
+        headers = {"d1": {"to": "a@b.com", "subject": "First"}}
+        fetched = []
+        g = self._gmail(monkeypatch, tmp_path, drafts, headers, fetched)
+
+        assert g.draft_headers()[0]["subject"] == "First"
+        assert fetched == ["d1"]
+
+        g._DRAFT_CACHE.clear()
+        assert g.draft_headers()[0]["subject"] == "First"
+        assert fetched == ["d1"], "second run re-fetched an unchanged draft"
+
+    def test_an_edited_draft_is_refetched(self, monkeypatch, tmp_path):
+        drafts = [{"id": "d1", "message": {"id": "m1"}}]
+        headers = {"d1": {"to": "a@b.com", "subject": "Original"}}
+        fetched = []
+        g = self._gmail(monkeypatch, tmp_path, drafts, headers, fetched)
+        g.draft_headers()
+
+        # Editing a draft keeps its id and changes its message id.
+        drafts[0]["message"]["id"] = "m2"
+        headers["d1"]["subject"] = "Edited"
+        g._DRAFT_CACHE.clear()
+
+        assert g.draft_headers()[0]["subject"] == "Edited"
+        assert fetched == ["d1", "d1"]
+
+    def test_deleted_drafts_leave_the_store(self, monkeypatch, tmp_path):
+        drafts = [{"id": "d1", "message": {"id": "m1"}},
+                  {"id": "d2", "message": {"id": "m2"}}]
+        headers = {"d1": {"to": "a@b.com", "subject": "One"},
+                   "d2": {"to": "c@d.com", "subject": "Two"}}
+        g = self._gmail(monkeypatch, tmp_path, drafts, headers, [])
+        g.draft_headers()
+
+        drafts.pop()                      # d2 deleted in Gmail
+        g._DRAFT_CACHE.clear()
+        assert {d["id"] for d in g.draft_headers()} == {"d1"}
+        assert "d2" not in g._load_draft_store()

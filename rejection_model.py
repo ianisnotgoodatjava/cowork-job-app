@@ -10,15 +10,9 @@ It is a second opinion, not a replacement — `scan` still trusts a rule hit
 outright, and only consults the model for emails the rules passed over.
 """
 
-import pickle
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.svm import LinearSVC
-from sklearn.model_selection import cross_val_score
-from sklearn.pipeline import make_pipeline
 
 import interview_signals
+import text_classifier
 
 MODEL_FILE = "rejection_model.pkl"
 
@@ -63,35 +57,13 @@ def build_training_set(days_back: int = 500):
 
 def train(days_back: int = 500, out_path: str = MODEL_FILE):
     X, y = build_training_set(days_back)
-    pos, neg = sum(y), len(y) - sum(y)
-    print(f"training set: {pos} rejections / {neg} non-rejections")
-    if pos < 25 or neg < 25:
-        raise SystemExit("not enough labelled examples to train on")
-
-    pipe = make_pipeline(
-        TfidfVectorizer(stop_words="english", ngram_range=(1, 2),
-                        sublinear_tf=True, min_df=2, max_features=20000),
-        # LinearSVC beat logistic regression and Naive Bayes on this data
-        # (5-fold F1 0.83 vs 0.77 / 0.26); calibrated so the threshold in
-        # rejection_scanner still has a real probability to compare against.
-        CalibratedClassifierCV(LinearSVC(class_weight="balanced"), cv=5),
-    )
-    # Cross-validated, so the number reported is not the score on data the
-    # model already saw.
-    f1 = cross_val_score(pipe, X, y, cv=5, scoring="f1")
-    print(f"5-fold CV F1: {f1.mean():.3f} (+/- {f1.std():.3f})")
-
-    pipe.fit(X, y)
-    with open(out_path, "wb") as f:
-        pickle.dump(pipe, f)
-    print(f"saved -> {out_path}")
-    return pipe
+    return text_classifier.train_and_save(
+        X, y, out_path, min_per_class=25, label="rejection")
 
 
 def load(path: str = MODEL_FILE):
-    with open(path, "rb") as f:
-        return pickle.load(f)
+    return text_classifier.load(path)
 
 
 def predict_proba(model, body: str) -> float:
-    return float(model.predict_proba([clean(body)])[0][1])
+    return text_classifier.predict_proba(model, clean(body))

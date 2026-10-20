@@ -40,6 +40,22 @@ def profile(path: str = BANK_FILE) -> dict:
     return load(path)["profile"]
 
 
+def background(key: str, path: str = BANK_FILE) -> str:
+    """A prompt-ready bio from the bank.
+
+    These name employers and a bank he asks not to be named in drafts, so
+    they live in the ignored file rather than in the prompts that use them.
+    Missing one is fatal: a drafting prompt with no bio in it produces a
+    confident email about nobody.
+    """
+    text = load(path).get("background", {}).get(key)
+    if not text:
+        raise SystemExit(
+            f"No `background.{key}` in {path}. The prompt needs a short bio; "
+            f"see {EXAMPLE_FILE} for the shape.")
+    return text
+
+
 def is_configured(path: str = BANK_FILE) -> bool:
     """True when a real bank exists. For callers that degrade rather than exit."""
     return os.path.exists(path)

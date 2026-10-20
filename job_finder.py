@@ -19,6 +19,7 @@ import datetime
 import os
 import re
 
+import resume_bank
 import sheets
 
 MODEL = "claude-opus-5"
@@ -71,17 +72,6 @@ URL: <direct link to the posting itself>
 POSTED: <date or "unknown">
 WHY: <one sentence on why it fits his background specifically>
 NOTE: <anything uncertain — expired, seniority ambiguous, aggregator link>"""
-
-
-def _background() -> str:
-    """His bio for the search prompt, from the bank rather than this file."""
-    import resume_bank
-    text = resume_bank.load().get("background", {}).get("job_search")
-    if not text:
-        raise SystemExit(
-            "No `background.job_search` in resume_bank.json; see "
-            "resume_bank.example.json for the shape.")
-    return text
 
 
 def _parse_jobs(text: str) -> list[dict]:
@@ -158,7 +148,7 @@ def run(areas: list[str] | None = None, per_area: int = 4,
                 model=MODEL,
                 max_tokens=8000,
                 system=SYSTEM.replace(
-                    "{BACKGROUND}", _background()),
+                    "{BACKGROUND}", resume_bank.background("job_search")),
                 thinking={"type": "adaptive"},
                 output_config={"effort": "high"},
                 tools=[{"type": "web_search_20260209", "name": "web_search",

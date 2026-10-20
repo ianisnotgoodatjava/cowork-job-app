@@ -13,6 +13,8 @@ confidence tests are the clearest: the obvious implementation reads the word
 import json
 import os
 import re
+
+import pytest
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -319,3 +321,45 @@ class TestHeaderAliases:
         assert "Applied Date" in config.CANONICAL
         assert "Applied Draes" not in config.CANONICAL
         assert len(config.CANONICAL) == len(config.HEADERS)
+
+
+class TestSharedClassifier:
+    """One pipeline behind the rejection, interview and follow-up models.
+
+    They had each grown a copy, and the copies had drifted: one recomputed
+    the fold count from the class sizes and one hard-coded five. That only
+    matters when a class is smaller than five, which is exactly the case
+    these models live in.
+    """
+
+    def test_folds_never_exceed_the_smaller_class(self):
+        """cross_val_score with a fixed cv=5 raises on a class of 3, which is
+        a confusing way to learn your training set is too small."""
+        import text_classifier
+        X = [f"rejected unfortunately {i}" for i in range(12)] + \
+            [f"interview scheduled {i}" for i in range(3)]
+        y = [0] * 12 + [1] * 3
+        assert text_classifier._safe_folds(y) == 3
+        # Cross-validation hands the pipeline two thirds of the data, so the
+        # inner calibration sees 2 of the 3 positives, not 3.
+        inner = text_classifier._calibration_folds(y, outer_folds=3)
+        assert inner == 2
+        pipe = text_classifier.build_pipeline(calibration_folds=inner)
+        _, _, folds = text_classifier.cross_validated_f1(pipe, X, y)
+        assert folds == 3
+
+    def test_too_few_examples_refuses_rather_than_fits(self, tmp_path):
+        """A confident-looking model trained on a handful is worse than none,
+        because the caller believes it."""
+        import text_classifier
+        with pytest.raises(SystemExit) as excinfo:
+            text_classifier.train_and_save(
+                ["a", "b", "c"], [0, 1, 0],
+                str(tmp_path / "m.pkl"), min_per_class=25)
+        assert "not enough" in str(excinfo.value).lower()
+
+    def test_missing_pickle_loads_as_none(self, tmp_path):
+        """Callers all have a phrase-rule fallback and should use it rather
+        than stop."""
+        import text_classifier
+        assert text_classifier.load(str(tmp_path / "absent.pkl")) is None

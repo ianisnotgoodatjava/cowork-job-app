@@ -19,10 +19,11 @@ import collections
 import datetime
 import json
 import os
-import pickle
 import re
 import statistics
 import time
+
+import text_classifier
 
 from style_profile import CORPUS, _clean, load
 
@@ -234,42 +235,24 @@ def _cached_training_set() -> tuple:
 def train(days_back: int = 400, refresh: bool = False,
           out_path: str = MODEL_FILE) -> None:
     """Fits nudge-vs-reply so unlabelled mail can be sorted without Gmail."""
-    from sklearn.calibration import CalibratedClassifierCV
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.model_selection import cross_val_score
-    from sklearn.pipeline import make_pipeline
-    from sklearn.svm import LinearSVC
-
     texts, labels = ([], []) if refresh else _cached_training_set()
     if not texts:
         texts, labels = build_training_set(days_back)
 
     if len(set(labels)) < 2:
-        print(f"Only one class in {len(labels)} example(s) — nothing to fit.")
+        print(f"Only one class in {len(labels)} example(s) - nothing to fit.")
         return
 
-    model = make_pipeline(
-        TfidfVectorizer(stop_words="english", ngram_range=(1, 2),
-                        min_df=2, sublinear_tf=True),
-        CalibratedClassifierCV(LinearSVC(class_weight="balanced"), cv=5),
-    )
-    scores = cross_val_score(model, texts, labels, cv=5, scoring="f1")
-    model.fit(texts, labels)
-    with open(out_path, "wb") as f:
-        pickle.dump(model, f)
-
-    nudges = sum(labels)
-    print(f"{len(labels)} labelled ({nudges} nudge / {len(labels)-nudges} reply)")
-    print(f"cross-validated F1: {scores.mean():.2f} (+/- {scores.std():.2f})")
-    print(f"saved -> {out_path}")
+    text_classifier.train_and_save(
+        texts, labels, out_path, min_per_class=5, label="follow-up",
+        too_few_message=(
+            "Too few verified nudges to fit on. They are rare: most later "
+            "messages in a thread are replies to someone who already wrote "
+            "back. Widen --days, or leave the exemplars unfiltered."))
 
 
 def _load_model():
-    try:
-        with open(MODEL_FILE, "rb") as f:
-            return pickle.load(f)
-    except (OSError, pickle.UnpicklingError):
-        return None
+    return text_classifier.load(MODEL_FILE)
 
 
 def is_nudge(text: str) -> bool:

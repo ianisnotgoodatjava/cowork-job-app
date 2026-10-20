@@ -32,6 +32,7 @@ import os
 import re
 import time
 
+import resume_bank
 import sheets
 import status as status_mod
 
@@ -347,17 +348,6 @@ def _stream_with_retry(client, max_attempts: int = 6, **kwargs):
             time.sleep(wait)
 
 
-def _background(key: str) -> str:
-    """The bio for a prompt, from the bank. Personal, so not in this file."""
-    import resume_bank
-    text = resume_bank.load().get("background", {}).get(key)
-    if not text:
-        raise SystemExit(
-            f"No `background.{key}` in resume_bank.json. The prompt needs a "
-            f"short bio; see resume_bank.example.json for the shape.")
-    return text
-
-
 def draft_for_row(client, row: dict) -> dict:
     """Researches and writes one email. Returns the parsed fields."""
     company = (row.get("Company") or "").strip()
@@ -400,7 +390,7 @@ def draft_for_row(client, row: dict) -> dict:
     examples = style_profile.exemplar_block(
         company=company, role=role,
         area=(row.get("Required Skills & Experience") or "")[:200])
-    system = SYSTEM.replace("{BACKGROUND}", _background("outreach"))
+    system = SYSTEM.replace("{BACKGROUND}", resume_bank.background("outreach"))
     system = system.replace("{STYLE_PROFILE}", "\n\n".join(
         part for part in (measured, examples) if part) or
         'He asks for 15-20 minutes and signs off "Best regards, Ian Liu".')

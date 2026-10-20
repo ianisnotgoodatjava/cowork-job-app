@@ -316,3 +316,51 @@ class TestDraftHeaderStore:
         g._DRAFT_CACHE.clear()
         assert {d["id"] for d in g.draft_headers()} == {"d1"}
         assert "d2" not in g._load_draft_store()
+
+
+class TestReadmeMatchesTheCLI:
+    """The README is the first thing a reader runs, and it drifts silently.
+
+    It documented `--new-only` after that flag became the default and was
+    replaced by `--redo`, and before that it claimed the CLI could not draft
+    email at all -- months after auto-draft could. Both were found by hand.
+    Nothing about a stale command fails until someone types it.
+    """
+
+    @staticmethod
+    def _readme() -> str:
+        with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as f:
+            return f.read()
+
+    @staticmethod
+    def _cli_help(*args) -> str:
+        result = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "cli.py"), *args, "--help"],
+            capture_output=True, text=True, cwd=ROOT, timeout=120)
+        return result.stdout + result.stderr
+
+    def test_every_documented_command_exists(self):
+        import re
+        documented = set(re.findall(r"python cli\.py ([a-z][a-z-]+)",
+                                    self._readme()))
+        assert documented, "no commands found in the README"
+        known = self._cli_help()
+        missing = sorted(c for c in documented if f"{c}" not in known)
+        assert not missing, f"README names commands the CLI lacks: {missing}"
+
+    def test_every_documented_flag_exists(self):
+        """Matched per command, since --days means different things to
+        different subcommands and a flag can be real but on the wrong one."""
+        import re
+        pairs = re.findall(r"python cli\.py ([a-z][a-z-]+)((?: --?[a-z-]+[^\n|#]*)*)",
+                           self._readme())
+        problems = []
+        for command, tail in pairs:
+            flags = set(re.findall(r"--[a-z][a-z-]+", tail))
+            if not flags:
+                continue
+            help_text = self._cli_help(command)
+            for flag in sorted(flags):
+                if flag not in help_text:
+                    problems.append(f"{command} {flag}")
+        assert not problems, f"README uses flags these commands lack: {problems}"

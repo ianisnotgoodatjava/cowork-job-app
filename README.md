@@ -310,9 +310,10 @@ against published sources, and writes the email conditioned on your own past
 outreach:
 
 ```bash
-python cli.py auto-draft --days 45 --limit 5 --new-only
+python cli.py auto-draft --days 45 --limit 5
 python cli.py auto-draft --prefer 'real estate|CRE|mortgage'   # a sector first
 python cli.py auto-draft --exclude 'some-company'              # leave one out
+python cli.py auto-draft --redo                                # re-research done rows
 ```
 
 It needs an LLM. With `ANTHROPIC_API_KEY` set it uses the API; without one it

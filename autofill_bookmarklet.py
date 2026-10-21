@@ -153,7 +153,7 @@ def build() -> str:
      javascript: URL, where // comments out the entire rest of the script. */
   var auto=(el.getAttribute('data-automation-id')||'')
              .replace(/([a-z0-9])([A-Z])/g,'$1 $2')
-             .replace(/([a-zA-Z])(\d)/g,'$1 $2')
+             .replace(/([a-zA-Z])(\\d)/g,'$1 $2')
              .replace(/[_-]+/g,' ');
   var s=[el.name,el.id,el.placeholder,el.getAttribute('aria-label')||'',auto];
   if(el.id){var l=document.querySelector('label[for="'+CSS.escape(el.id)+'"]');

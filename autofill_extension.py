@@ -24,6 +24,7 @@ Load it once: chrome://extensions -> Developer mode -> Load unpacked.
 Re-run this after changing resume_bank.json to refresh the baked-in values.
 """
 
+import sender_profile
 import json
 import os
 
@@ -43,7 +44,7 @@ SITES = [
 
 _MANIFEST = {
     "manifest_version": 3,
-    "name": "Application autofill (Ian Liu)",
+    "name": f"Application autofill ({sender_profile.get('name')})",
     "version": "1.0",
     "description": "Fills your own details into application forms. "
                    "Never submits, never answers sponsorship or demographics.",

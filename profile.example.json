@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to profile.json and fill in. profile.json is gitignored: it is the only place the sender's identity lives, so the code can be published without publishing a CV.",
+  "name": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "phone": "",
+  "school": "Example University",
+  "school_short": "Example",
+  "degree": "Economics",
+  "graduated": "recently",
+  "employer": "Example Corp",
+  "sign_off": "Best regards",
+  "subject_prefix": "Recent {school_short} Graduate Inquiring about",
+  "resume_path": "~/Resume.pdf"
+}

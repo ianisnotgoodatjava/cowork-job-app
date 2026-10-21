@@ -15,7 +15,7 @@ rest:
     are writing to *this* company.
 
 That gap is deliberate. Every reply you have ever had came from an email with
-something particular in it: Person A's AI server work, Person B's move out of
+something particular in it: one analyst's AI server work, another's move out of
 fixed income, Person C's piece on telecom asset revaluation. A generated
 paragraph of enthusiasm reads exactly like the 290 emails that returned a 9.8%
 reply rate. Filling [[HOOK]] is a couple of minutes per email and is the only
@@ -26,6 +26,7 @@ Nothing here touches Gmail. It writes files for you to read.
 
 import datetime
 import os
+import sender_profile
 import re
 
 import sheets
@@ -131,7 +132,7 @@ def _draft(row: dict, bank: dict) -> str:
 Company: {company}
 Role:    {role}
 Applied: {row.get('Applied Draes', '')}   Location: {row.get('location', '') or '(unknown)'}
-Subject: Recent NYU Graduate Inquiring about {role} at {company}
+Subject: {sender_profile.subject_prefix()} {role} at {company}
 
 ---------------------------------------------------------------------------
 Dear [[NAME]],
@@ -152,8 +153,7 @@ attached my resume for reference.
 
 Thank you for your time and consideration.
 
-Best regards,
-Ian Liu
+{sender_profile.sign_off()}
 {_signature()}
 ---------------------------------------------------------------------------
 

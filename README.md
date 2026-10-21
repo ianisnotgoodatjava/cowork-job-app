@@ -76,10 +76,26 @@ note and gets the answer exactly backwards.
 python cli.py setup
 ```
 
-Tells you which of the steps below are still outstanding, creates `.env` and
-`resume_bank.json` from the examples, and once you have Google credentials,
+Tells you which of the steps below are still outstanding, creates `.env`,
+`profile.json` and `resume_bank.json` from the examples, and once you have
+Google credentials,
 `python cli.py setup --create-sheet` makes the tracking sheet in your own
 Drive with the right columns and writes its id into `.env`.
+
+### Your identity lives in `profile.json`
+
+The outreach templates need a name, school, degree and employer. Those come
+from `profile.json`, which is gitignored; `profile.example.json` has the same
+shape with placeholders:
+
+```bash
+cp profile.example.json profile.json   # then edit it
+```
+
+Nothing about the sender is hard-coded in the source, so the repository can be
+published without publishing a CV. If the profile is missing, drafts come out
+addressed from `YOUR NAME` rather than from whoever last used the code —
+`sender_profile.is_configured()` is the check worth making before a bulk run.
 
 The steps it is checking for:
 

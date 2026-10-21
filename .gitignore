@@ -29,3 +29,7 @@ sheet-backup-*.csv
 # jobtracker.plist.example is the template.
 com.*.jobtracker.plist
 logs/draft_headers.json
+
+# The sender's own identity: name, school, employer, contact details.
+# profile.example.json has the same shape with placeholders.
+profile.json

@@ -20,7 +20,7 @@ Two rules are pushed hard in the prompt because both were learned the
 expensive way in this repo:
 
   * Never invent a quote or a claim about what someone said. An early
-    hand-written draft attributed an argument to Person A that he never
+    hand-written draft attributed an argument to a named analyst he never
     made; it would have been obvious to him.
   * Prefer a mid-level practitioner over a department head. 18 emails to
     KBRA — several to senior people — produced zero replies, while every
@@ -33,6 +33,7 @@ import re
 import time
 
 import resume_bank
+import sender_profile
 import sheets
 import status as status_mod
 
@@ -74,7 +75,7 @@ def _key(row: dict) -> str:
 # first BODY instead of splitting them out.
 _FIELD_RE = re.compile(r"^===\s*([A-Z_0-9]+)\s*===\s*$", re.M)
 
-SYSTEM = """You research two contacts and write a cold outreach email to each, for Ian Liu.
+SYSTEM = """You research two contacts and write a cold outreach email to each, for {SENDER_NAME}.
 
 WHO IAN IS
 {BACKGROUND}
@@ -391,9 +392,11 @@ def draft_for_row(client, row: dict) -> dict:
         company=company, role=role,
         area=(row.get("Required Skills & Experience") or "")[:200])
     system = SYSTEM.replace("{BACKGROUND}", resume_bank.background("outreach"))
+    system = system.replace("{SENDER_NAME}", sender_profile.get("name"))
     system = system.replace("{STYLE_PROFILE}", "\n\n".join(
         part for part in (measured, examples) if part) or
-        'He asks for 15-20 minutes and signs off "Best regards, Ian Liu".')
+        f'He asks for 15-20 minutes and signs off '
+        f'"{sender_profile.sign_off().replace(chr(10), ", ")}".')
 
     # No key means no client, and the CLI does the same work on the
     # subscription instead. Everything after this point is identical either
@@ -615,7 +618,7 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
                 print(f"    ! {verdict[:96]}")
 
             # Style gate. The generator's drift from the corpus was blunt and
-            # measurable -- an invented "you@example.com | REDACTED"
+            # measurable -- an invented contact-details footer
             # signature on every draft against 0 of 345 real emails -- so it
             # is reported here rather than found in Drafts a week later.
             import style_check

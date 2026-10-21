@@ -17,13 +17,14 @@ Measured over 346 initial (non-follow-up) emails:
   subject    85% "Recent NYU Graduate Inquiring about X at Y", 10% the same
              with "Interested in". Nothing else clears 1%.
   shape      5 paragraphs in 63% of them, median 152 words
-  opening    "I hope you're doing well. My name is Ian Liu, and I recently
+  opening    "I hope you're doing well. My name is <name>, and I recently
              graduated from NYU with a degree in Mathematics and Economics"
   closing    asks for 15-20 minutes (97%), attaches the resume (89%)
 
 Read-only over outreach_corpus.json.
 """
 
+import sender_profile
 import collections
 import json
 import re
@@ -130,7 +131,8 @@ def prompt_block(path: str = CORPUS) -> str:
     ]
     for phrase, share in profile["closing"]:
         lines.append(f"  {share:.0%} {phrase}")
-    lines.append('  Signs off "Best regards, Ian Liu".')
+    lines.append(f'  Signs off "{sender_profile.sign_off()}".'
+                 .replace(chr(10), ', '))
     return "\n".join(lines)
 
 

@@ -16,7 +16,7 @@ Comparing 12 generated drafts against 345 real emails:
 
   signature   every generated draft ended with his contact block.
               That appears in 0 of 345 real ones -- he signs off "Best
-              regards, Ian Liu" and stops. A perfect discriminator on its
+              regards, <name>" and stops. A perfect discriminator on its
               own, and pure model invention.
   length      199 words median generated against 159 real. Bounded at the
               95th percentile (229) rather than the interquartile range --
@@ -30,6 +30,7 @@ None of that needed a trained model to find, and a rule that names the
 specific failure is more useful at generation time than a probability.
 """
 
+import sender_profile
 import re
 
 
@@ -86,7 +87,8 @@ def check(body: str, subject: str = "") -> list[str]:
         problems.append(f"{words} words — shorter than anything he sends")
 
     if not _SIGN_OFF_RE.search(text):
-        problems.append('does not end "Best regards,\\nIan Liu" — 310 of 345 do')
+        problems.append(f'does not end "{sender_profile.sign_off()}"'
+                        f' — 310 of 345 do')
 
     hits = [w for w in _MODEL_TELLS if re.search(rf"\b{w}\b", lower)]
     if len(hits) >= 3:

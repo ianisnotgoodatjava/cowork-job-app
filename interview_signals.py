@@ -139,7 +139,7 @@ INTERVIEW_INVITE_PHRASES = [
 ]
 
 # Your own thank-you note is the single most reliable tell that an interview
-# happened: you send one after every conversation ("Thank You - Ian Liu"), and
+# happened: you send one after every conversation ("Thank You - <name>"), and
 # it exists even when the company's rejection is terse or never arrives at all.
 SELF_INTERVIEW_PHRASES = [
     "thank you for your time earlier",

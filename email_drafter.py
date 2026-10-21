@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sender_profile
 import re
 
 # Gmail's mobile-signature placeholder. Shows up as a floating dot at the end
@@ -158,7 +159,7 @@ def _adapt_reference(rec: dict, row: dict, contact_name: str) -> tuple[str, str]
     # reference's own area was blank and this fell through to it.
     area = (rec.get("area") or "").strip() or _subject_area(row)
     if " at " in area.lower():
-        subject = f"Recent NYU Graduate Inquiring about {area}"
+        subject = f"{sender_profile.subject_prefix()} {area}"
     else:
         subject = f"Recent NYU Graduate Inquiring about {area} at {new_company}"
     return subject, body
@@ -195,7 +196,7 @@ def generate_outreach(row: dict) -> tuple[str, str]:
     # prefer the sheet's captured posting detail when it is filled in.
     area = (row.get("Required Skills & Experience") or "").strip()
 
-    subject = f"Recent NYU Graduate Inquiring about {_subject_area(row)}"
+    subject = f"{sender_profile.subject_prefix()} {_subject_area(row)}"
 
     if contact_title:
         hook = f"your experience {_lead_in(contact_title)} at {company}"
@@ -205,10 +206,8 @@ def generate_outreach(row: dict) -> tuple[str, str]:
     greeting = f"Dear {first}," if contact_name else "Hello,"
     body = (
         f"{greeting}\n\n"
-        "I hope you're doing well. My name is Ian Liu. I recently graduated "
-        "from NYU with a degree in Mathematics and Economics and currently "
-        f"work at REDACTED. I came across your profile and was particularly "
-        f"interested in {hook}.\n\n"
+        f"{sender_profile.intro_opening()} I came across your profile and "
+        f"was particularly interested in {hook}.\n\n"
         f"{_interest_para(area, position, company)}\n\n"
         "If you have 15-20 minutes over the next few weeks, I'd greatly "
         "appreciate the opportunity to speak with you, either over the phone "
@@ -218,8 +217,7 @@ def generate_outreach(row: dict) -> tuple[str, str]:
         "resume for your reference.\n\n"
         "Thank you for your time and consideration. I look forward to the "
         "opportunity to connect.\n\n"
-        "Best regards,\n"
-        "Ian Liu"
+        f"{sender_profile.sign_off()}"
     )
     return subject, body
 
@@ -255,7 +253,7 @@ def generate_follow_up(row: dict) -> tuple[str, str]:
     first = _first_name(contact_name) if contact_name else "there"
     subject_area = _subject_area(row)
 
-    subject = f"Re: Recent NYU Graduate Inquiring about {subject_area}"
+    subject = f"Re: {sender_profile.subject_prefix()} {subject_area}"
     greeting = f"Dear {first}," if contact_name else "Hello,"
     body = (
         f"{greeting}\n\n"
@@ -265,7 +263,6 @@ def generate_follow_up(row: dict) -> tuple[str, str]:
         "on my earlier message in case it was overlooked.\n\n"
         "Please don't hesitate to let me know if now isn't a good time. I greatly "
         "appreciate and respect your time.\n\n"
-        "Sincerely,\n"
-        "Ian Liu"
+        f"Sincerely,\n{sender_profile.get('name')}"
     )
     return subject, body

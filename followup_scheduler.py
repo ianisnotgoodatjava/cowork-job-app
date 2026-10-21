@@ -19,6 +19,7 @@ thread, so it lands under the first email in both inboxes. The words come
 from the same subscription-backed CLI path auto_draft uses, conditioned on
 his own verified follow-ups.
 """
+import sender_profile
 
 import datetime
 import re
@@ -30,7 +31,7 @@ import gmail_client
 
 from config import ME_RE, NETWORKING_KEYWORDS
 
-SYSTEM = """You write ONE short follow-up email for Ian Liu to a person who has not
+SYSTEM = """You write ONE short follow-up email for {SENDER_NAME} to a person who has not
 replied to his first email. The first email is shown; do not repeat it.
 
 Rules
@@ -40,7 +41,7 @@ Rules
 - Plain, specific, unhurried. No exclamation marks. No "just checking in".
 - Keep the original ask (a short conversation) and, if the first email
   mentioned something specific about them, refer back to it in one clause.
-- Sign off exactly: "Sincerely,\\nIan Liu" -- that is how 8 of his 11
+- Sign off exactly: "Sincerely,\\n{SENDER_NAME}" -- that is how 8 of his 11
   real follow-ups end, unlike his first emails.
 
 {FOLLOWUP_PROFILE}
@@ -144,7 +145,8 @@ def draft_body(cand: dict) -> str:
     from auto_draft import _via_cli
 
     profile = followup_model.prompt_block(area=cand["subject"])
-    system = SYSTEM.replace("{FOLLOWUP_PROFILE}", profile)
+    system = (SYSTEM.replace("{FOLLOWUP_PROFILE}", profile)
+              .replace("{SENDER_NAME}", sender_profile.get("name")))
     prompt = (
         f"Recipient first name: {_first_name(cand['to'])}\n"
         f"Days since the first email: {cand['age']}\n\n"

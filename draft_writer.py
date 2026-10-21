@@ -18,6 +18,7 @@ import json
 import os
 import re
 
+import sender_profile
 import sheets
 
 OUT_DIR = os.path.join("logs", "drafts", "ready")
@@ -28,7 +29,7 @@ RESUME = os.path.expanduser("~/Ian_Liu_Resume.pdf")
 # 2026-08-28, not described in adjectives. The shape below is what those
 # emails actually are:
 #
-#   subject   93% "Recent NYU Graduate Inquiring about <area> at <company>",
+#   subject   93% "<subject_prefix> <area> at <company>",
 #             the area a median of 2 words ("Research", "ABS", "Fund Ratings")
 #   body      median 6 blocks, 188 words (p25 169, p75 207)
 #   opening   85% begin "I hope you're doing well."
@@ -39,10 +40,12 @@ RESUME = os.path.expanduser("~/Ian_Liu_Resume.pdf")
 # by announcing that he had applied for the role, which his own emails never
 # do — they ask to learn about the work — and it appended an email/phone
 # signature block that appears in none of them.
-# Your subject line, as you actually write it: 93% of the last three months'
-# initial emails are exactly this, and the area is a median of two words
-# ("Research", "ABS", "Fund Ratings") — never the posting's full title.
-SUBJECT_PREFIX = "Recent NYU Graduate Inquiring about"
+# The subject line, as measured from the sender's own outreach: 93% of the
+# last three months' initial emails follow one template, and the area is a
+# median of two words ("Research", "ABS", "Fund Ratings") — never the
+# posting's full title. The template itself lives in the profile.
+def _subject_prefix() -> str:
+    return sender_profile.subject_prefix()
 
 # Seniority and shape, not subject matter. Removing these is what turns a
 # posting title into a topic.
@@ -137,10 +140,12 @@ def display_company(name: str) -> str:
 def subject_for(row: dict, fallback: str = "Research") -> str:
     company = display_company(row.get("Company", ""))
     topic = subject_topic(row.get("Position", ""), fallback)
-    return f"{SUBJECT_PREFIX} {topic} at {company}"
+    return f"{_subject_prefix()} {topic} at {company}"
 
 
-SIGN_OFF = "Best regards,\nIan Liu"
+def _sign_off() -> str:
+    """Read from the profile, not baked in — see sender_profile."""
+    return sender_profile.sign_off()
 
 
 def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
@@ -164,12 +169,7 @@ def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
     # "I came across" moves out of the intro so the hook can use it, which is
     # where it belongs: 51% of the real hook paragraphs are about the reader's
     # work, and only 2% mention any of Ian's own past employers.
-    intro = (
-        "I hope you're doing well. My name is Ian Liu. I recently graduated "
-        "from NYU with a degree in Mathematics and Economics and currently "
-        f"work at AXA. I'm reaching out because I'm very interested in "
-        f"learning more about {area_phrase} at {company}."
-    )
+    intro = sender_profile.intro_sentence(area_phrase, company)
     request = ask or (
         "If you have 15\u201320 minutes for a quick call in the coming weeks, "
         "I'd really appreciate the opportunity to hear about your experience "
@@ -179,7 +179,7 @@ def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
               "to connect.")
 
     return (f"Dear {first},\n\n{intro}\n\n{hook.strip()}\n\n{request}\n\n"
-            f"{thanks}\n\n{SIGN_OFF}\n")
+            f"{thanks}\n\n{_sign_off()}\n")
 
 
 def _address_note(addr: str) -> str:

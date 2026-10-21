@@ -21,7 +21,7 @@ class OutreachIndex:
         self.records = records
         # Index the *topic* of each email (subject area, company, subject
         # line) rather than the whole body: the bodies share so much boilerplate
-        # ("My name is Ian Liu... I recently graduated from NYU") that
+        # ("My name is <name>... I recently graduated from <school>") that
         # full-body vectors make everything look equally similar.
         self.corpus = [
             f"{r.get('area', '')} {r.get('company', '')} {r.get('subject', '')}"

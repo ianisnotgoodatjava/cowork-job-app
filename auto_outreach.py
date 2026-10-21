@@ -24,6 +24,7 @@ guessed address costs a bounce, and bounces are charged against the domain for
 every later email sent there.
 """
 
+import sender_profile
 import os
 
 import company_formats
@@ -87,7 +88,7 @@ def _body(company: str, role: str, contact: dict, bullets: list[str]) -> str:
 
     return "\n\n".join([
         f"Dear {greeting},",
-        "I hope you're doing well. My name is Ian Liu, and I recently "
+        f"{sender_profile.intro_opening()} "
         "graduated from NYU with a degree in Mathematics and Economics. I'm "
         f"reaching out because I applied to the {role} role at {company}, and "
         f"as {who} you seemed like a good person to ask about the work.",

@@ -212,7 +212,7 @@ def run(last: int = 50, per_company: int = MAX_PER_COMPANY,
                 # into one reassuring sentence. An address you once wrote to
                 # and never heard back from is not "confirmed" — it is the
                 # weakest evidence in the mailbox, and calling it confirmed is
-                # how jane.doe@example.com came to be presented as a real
+                # how an unanswered guess came to be presented as a real
                 # contact when the only trace of it was Ian's own unanswered
                 # email from eighteen months earlier.
                 "confidence": (

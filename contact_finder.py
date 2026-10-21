@@ -108,8 +108,8 @@ def name_from_address(addr: str) -> str:
 def has_real_name(person: dict) -> bool:
     """True when we know what to actually call them.
 
-    An address alone is not a name. "jsmith@example.com" would be greeted as
-    "Dear Jsmith", which reads as a mail merge and wastes the contact — the
+    An address alone is not a name. "jsmith@example.com" would be greeted
+    as "Dear Jsmith", which reads as a mail merge and wastes the contact —
     one thing a cold email cannot afford in its first two words.
     """
     parts = [w for w in (person.get("name") or "").split() if w]

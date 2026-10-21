@@ -10,9 +10,9 @@ Every bounce is also a labelled example nobody was using. Gmail already
 records which addresses were delivered and which came back, so the format each
 domain uses is sitting in the mailbox waiting to be counted:
 
-    websterbank.com   jSmith@ delivered, John.Smith@ bounced
-    abiresearch.com   Smith@    delivered, PSmith@         bounced
-    kbra.com          first.last@ published
+    examplebank.com   jdoe@      delivered, Jane.Doe@        bounced
+    exampleresearch.com  Lee@    delivered, PLee@            bounced
+    exampleratings.com   alex.rivera@ published
 
 This turns that history into a per-domain pattern with evidence, so a guessed
 address can be checked before it is used rather than after it fails.

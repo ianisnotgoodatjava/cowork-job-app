@@ -15,6 +15,7 @@ Needs ANTHROPIC_API_KEY: the searching happens server-side inside the API
 call, the same mechanism `auto_draft` uses.
 """
 
+import sender_profile
 import datetime
 import os
 import re
@@ -39,7 +40,7 @@ SEARCH_AREAS = [
 
 _FIELD_RE = re.compile(r"^===\s*JOB\s*===\s*$", re.M)
 
-SYSTEM = """You find live job postings for Ian Liu and report them plainly.
+SYSTEM = """You find live job postings for {SENDER_NAME} and report them plainly.
 
 WHO HE IS
 {BACKGROUND}
@@ -148,7 +149,8 @@ def run(areas: list[str] | None = None, per_area: int = 4,
                 model=MODEL,
                 max_tokens=8000,
                 system=SYSTEM.replace(
-                    "{BACKGROUND}", resume_bank.background("job_search")),
+                    "{BACKGROUND}", resume_bank.background("job_search")
+                ).replace("{SENDER_NAME}", sender_profile.get("name")),
                 thinking={"type": "adaptive"},
                 output_config={"effort": "high"},
                 tools=[{"type": "web_search_20260209", "name": "web_search",

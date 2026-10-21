@@ -40,7 +40,7 @@ def _me_pattern() -> str:
 
     alts = [re.escape(e.strip()) for e in email.split(",") if e.strip()]
     if name.strip():
-        # "Ian Liu" also has to match "ianliu" and "ian.liu".
+        # A name like "Jane Doe" also has to match "janedoe" and "jane.doe".
         parts = [re.escape(p) for p in name.split()]
         alts.append(r"\.?".join(parts))
     if not alts:

@@ -248,7 +248,7 @@ def domain_for(company: str, book: dict | None = None) -> tuple[str, str]:
 
     # Drafts count as evidence too. A domain reached this far once already --
     # somebody researched it -- and Karbone is the case in point: eleven drafts
-    # to @karbone.com and not one sent, so delivery history knows nothing.
+    # to that domain and not one sent, so delivery history knows nothing.
     try:
         import gmail_client
         for draft in gmail_client.draft_headers():

@@ -81,7 +81,7 @@ _T = r"[^.,;:!?\n|]"        # title chars, stops at sentence punctuation
 _TC = r"[^.;:!?\n|]"        # ... but commas allowed ("Analyst, Institutional")
 
 PATTERNS = [
-    # Workday audit line: "Job Application: Ian Liu - R-10354883 Analyst Program I on 03/11/2025"
+    # Workday audit line: "Job Application: <name> - R-10354883 Analyst Program I on 03/11/2025"
     re.compile(rf"Job Application:\s*[^\n\-–]*[-–]\s*({_TC}{{4,80}}?)\s+on\s+\d{{1,2}}/\d{{1,2}}/\d{{2,4}}", re.I),
     # "your application for the following position: Sales and Trading Assistant - Corporate Bonds."
     re.compile(rf"following position\s*:\s*({_TC}{{4,80}})", re.I),

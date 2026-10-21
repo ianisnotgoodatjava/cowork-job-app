@@ -9,6 +9,9 @@ naming convention, because it either bounced or it did not.
 Everything here is a lookup against mail you already have. No web, no API.
 """
 
+import datetime
+import json
+import os
 import re
 
 import gmail_client
@@ -128,12 +131,51 @@ def best_name(person: dict) -> str:
     return ""
 
 
+CACHE = os.path.join("logs", "contacts_harvest.json")
+
+
+def _load_cache() -> dict:
+    try:
+        with open(CACHE) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_cache(people: dict, newest_day: str) -> None:
+    os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    with open(CACHE, "w") as f:
+        json.dump({"people": people, "through": newest_day}, f, indent=1)
+
+
 def harvest(days_back: int = 700, max_results: int = 6000,
-            include_drafts: bool = True) -> dict:
+            include_drafts: bool = True, refresh: bool = False) -> dict:
     """domain-ish key -> [{name, email, seen, wrote_to}] for every human found.
 
     Reads both directions: people who wrote to you, and people you wrote to.
+
+    Incremental. Re-reading the whole 700-day mailbox on every run meant ~7,000
+    message fetches against a quota that allows roughly fifty a second; one
+    pass lost 6,866 of them and found nobody at all. The set of people in old
+    mail does not change, so old mail is read once and cached, and later runs
+    only fetch what has arrived since.
     """
+    cached = {} if refresh else _load_cache()
+    known = cached.get("people") or {}
+    through = cached.get("through")
+    window = days_back
+    if known and through:
+        try:
+            age = (datetime.date.today()
+                   - datetime.date.fromisoformat(through)).days
+            # A couple of days of overlap, so nothing falls through the seam.
+            window = max(2, age + 2)
+            print(f"  (cached: {len(known)} address(es) through {through}; "
+                  f"reading the last {window} day(s))")
+        except ValueError:
+            window = days_back
+    days_back = window
     # Drafts are read too, but kept separable. A contact sitting in an unsent
     # draft was researched at some point and is a real lead; it is simply not
     # evidence that the address works, the way a delivered message is. Mixing
@@ -172,6 +214,19 @@ def harvest(days_back: int = 700, max_results: int = 6000,
                     rec["wrote_to"] = True
                 if not outbound and not is_recipient:
                     rec["replied"] = True
+
+    # Merge onto the cache rather than replacing it: counters add up, and a
+    # reply seen in either pass stays a reply.
+    for key, rec in known.items():
+        cur = people.get(key)
+        if cur is None:
+            people[key] = rec
+            continue
+        cur["seen"] += rec.get("seen", 0)
+        cur["name"] = cur.get("name") or rec.get("name", "")
+        for flag in ("wrote_to", "replied", "delivered"):
+            cur[flag] = bool(cur.get(flag)) or bool(rec.get(flag))
+    _save_cache(people, datetime.date.today().isoformat())
     return people
 
 

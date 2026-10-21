@@ -143,7 +143,19 @@ def build() -> str:
 (function(){
  var P=%(profile)s, M=%(matchers)s, NEVER=%(never)s;
  function label(el){
-  var s=[el.name,el.id,el.placeholder,el.getAttribute('aria-label')||''];
+  /* Workday names every field with data-automation-id and routinely
+     supplies no name and no aria-label -- the signals every other ATS
+     gives. Ids read like legalNameSection_firstName, so camelCase and
+     letter-digit boundaries are split before matching, or "firstName"
+     never meets a "first name" matcher and addressLine1 misses
+     "address line 1" by one space.
+     Block comments, not line comments: build() emits this as a one-line
+     javascript: URL, where // comments out the entire rest of the script. */
+  var auto=(el.getAttribute('data-automation-id')||'')
+             .replace(/([a-z0-9])([A-Z])/g,'$1 $2')
+             .replace(/([a-zA-Z])(\d)/g,'$1 $2')
+             .replace(/[_-]+/g,' ');
+  var s=[el.name,el.id,el.placeholder,el.getAttribute('aria-label')||'',auto];
   if(el.id){var l=document.querySelector('label[for="'+CSS.escape(el.id)+'"]');
             if(l)s.push(l.innerText);}
   var p=el.closest('label'); if(p)s.push(p.innerText);

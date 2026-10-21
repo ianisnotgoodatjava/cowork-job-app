@@ -25,12 +25,69 @@ _svc = None
 # retry backoff to do its job on the occasional 429.
 FETCH_WORKERS = 12
 
-# googleapiclient's underlying httplib2 object is not thread-safe, so each
-# worker thread builds and keeps its own service rather than sharing one.
+# Gmail bills every get inside a batch against the same per-second quota:
+# 250 units per user per second, and messages.get costs 5, so roughly 50 gets
+# per second is the real ceiling however they are packaged. A batch of 60 was
+# returning "403 rateLimitExceeded" for 33 of them — which is what the
+# "skipped after repeated read errors" lines were, all along. Batching helps
+# header-only gets a great deal and full-body gets not at all, so the two
+# take different paths below.
+BATCH_SIZE = 50          # header-only gets: measured 25 ms/msg, zero drops
+BATCH_SIZE_BODY = 25     # full payloads are far larger, so fewer per request
+BATCH_WORKERS = 4
+BODY_WORKERS = 2         # bodies move more bytes; less concurrency, fewer 403s
+
+# Body fetches are individual gets and the only thing that reduces their loss
+# rate is asking for fewer at once and waiting longer when told to. Twelve
+# workers with three attempts was losing 96 of 275; the limit being hit is
+# "403 rateLimitExceeded", which clears if you back off instead of retrying
+# into it.
+BODY_FETCH_WORKERS = 5
+BODY_RETRY_ATTEMPTS = 6
+
+# Adaptive throttle. A fixed pace was tried and rejected: it slowed a
+# 275-message scan from 25 to 113 ms/msg while large scans still failed. The
+# real behaviour is that Gmail tolerates a burst and then starts refusing, so
+# the only thing that works across both sizes is to go fast until told not
+# to, then back off and recover. Without this a 7,000-message harvest lost
+# 6,866 of them.
+_throttle_lock = threading.Lock()
+_throttle = {"delay": 0.0, "clean": 0}
+THROTTLE_MAX = 2.0
+THROTTLE_STEP = 0.25
+
+
+def _throttle_wait() -> None:
+    with _throttle_lock:
+        d = _throttle["delay"]
+    if d > 0:
+        time.sleep(d)
+
+
+def _throttle_report(rate_limited: bool) -> None:
+    """Speeds up after sustained success, slows down the moment it is refused."""
+    with _throttle_lock:
+        if rate_limited:
+            _throttle["delay"] = min(THROTTLE_MAX,
+                                     _throttle["delay"] + THROTTLE_STEP)
+            _throttle["clean"] = 0
+        else:
+            _throttle["clean"] += 1
+            if _throttle["clean"] >= 5 and _throttle["delay"] > 0:
+                _throttle["delay"] = max(0.0,
+                                         _throttle["delay"] - THROTTLE_STEP / 2)
+                _throttle["clean"] = 0
+
+
 _thread_local = threading.local()
 
 
 def _thread_service():
+    """A Gmail client per worker thread.
+
+    googleapiclient's underlying http object is not thread-safe; sharing one
+    across workers aborts the interpreter rather than failing cleanly.
+    """
     svc = getattr(_thread_local, "svc", None)
     if svc is None:
         svc = build("gmail", "v1", credentials=get_credentials())
@@ -91,33 +148,30 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
             lambda: svc.users().messages().list(
                 userId="me", q=query, pageToken=page,
                 maxResults=min(500, max_results - len(collected)),
-            ).execute()
+            ).execute(),
+            attempts=BODY_RETRY_ATTEMPTS,
         )
         if response is None:
+            # A rate-limited list call used to end the loop quietly, so the
+            # caller received an empty result and reported "Found 0" as
+            # though the mailbox held nothing. One pass genuinely reported
+            # zero rejections and zero job links that way. Say so instead.
+            print(f"  ! Gmail search failed after retries; results are "
+                  f"incomplete ({len(collected)} id(s) collected so far)"
+                  f" for: {query[:70]}")
             break
         collected.extend(response.get("messages", []))
         page = response.get("nextPageToken")
         if not page:
             break
 
-    def fetch(msg):
-        """Fetches one message. Returns None when it should be skipped."""
-        worker = _thread_service()
-        full = _retry(
-            lambda: worker.users().messages().get(
-                userId="me", id=msg["id"],
-                format="full" if include_body else "metadata",
-                metadataHeaders=["Subject", "From", "To", "Date"],
-            ).execute()
-        )
-        # One flaky read used to abort a whole scan after several minutes of
-        # work. Losing a single message is a far better outcome.
-        if full is None:
-            return None
+    fmt = "full" if include_body else "metadata"
+
+    def to_entry(msg_id: str, thread_hint: str, full: dict) -> dict:
         headers = {h["name"]: h["value"] for h in full["payload"]["headers"]}
         entry = {
-            "id": msg["id"],
-            "threadId": msg.get("threadId") or full.get("threadId", ""),
+            "id": msg_id,
+            "threadId": thread_hint or full.get("threadId", ""),
             "subject": headers.get("Subject", ""),
             "from": headers.get("From", ""),
             "to": headers.get("To", ""),
@@ -128,13 +182,109 @@ def search_messages(query: str, max_results: int = 100, include_body: bool = Fal
             entry["body"] = _extract_body(full["payload"])
         return entry
 
-    # executor.map preserves input order, so callers that relied on results
-    # arriving in Gmail's order still get them that way.
-    if collected:
-        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
-            fetched = list(pool.map(fetch, collected))
-    else:
-        fetched = []
+    def fetch_batch(chunk: list) -> dict:
+        """One HTTP request for up to BATCH_SIZE messages.
+
+        Previously each message was its own round trip, 12 at a time. A scan
+        of 800 messages was therefore 800 HTTPS requests, which burst past the
+        per-user rate limit; the 403s were retried with exponential backoff
+        and then dropped, so the scan was both slow and lossy — a query that
+        should have returned 843 messages returned none at all.
+
+        Gmail accepts a batch of gets as a single request, so the same scan is
+        ~17 requests. Per-message failures come back per-item instead of
+        taking anything else down with them.
+        """
+        out, failed = {}, []
+
+        def handle(request_id, response, exception):
+            if exception is not None:
+                status = getattr(getattr(exception, "resp", None), "status", None)
+                if status != 404:          # 404 = deleted between list and get
+                    failed.append(request_id)
+                return
+            out[request_id] = response
+
+        # Per-thread service, not the shared one: googleapiclient's transport
+        # is not thread-safe, and four batch workers sharing one http object
+        # aborted the interpreter outright.
+        _throttle_wait()
+        worker = _thread_service()
+        batch = worker.new_batch_http_request(callback=handle)
+        for msg in chunk:
+            batch.add(
+                worker.users().messages().get(
+                    userId="me", id=msg["id"], format=fmt,
+                    metadataHeaders=["Subject", "From", "To", "Date"],
+                ),
+                request_id=msg["id"],
+            )
+        try:
+            _retry(batch.execute)
+        except Exception:
+            failed.extend(m["id"] for m in chunk if m["id"] not in out)
+        _throttle_report(bool(failed))
+        return {"ok": out, "failed": failed}
+
+    def fetch_one(msg):
+        """One message, one request — the path bodies still have to take."""
+        _throttle_wait()
+        worker = _thread_service()
+        full = _retry(
+            lambda: worker.users().messages().get(
+                userId="me", id=msg["id"], format=fmt,
+                metadataHeaders=["Subject", "From", "To", "Date"],
+            ).execute(),
+            attempts=BODY_RETRY_ATTEMPTS,
+        )
+        _throttle_report(full is None)
+        return msg["id"], full
+
+    fetched_by_id, still_failing = {}, []
+    if collected and include_body:
+        # Batching full payloads was measured and abandoned: 50-per-request
+        # lost 33 of 60 to "403 rateLimitExceeded", and shrinking the batch
+        # made it worse (250 of 275 lost), because the quota is charged per
+        # get regardless of packaging while the response size grows. One
+        # request per message, moderately parallel, is what actually works
+        # here. Headers still batch, where it measured 17 ms/msg with no loss.
+        with ThreadPoolExecutor(max_workers=BODY_FETCH_WORKERS) as pool:
+            for mid, full in pool.map(fetch_one, collected):
+                if full is not None:
+                    fetched_by_id[mid] = full
+    elif collected:
+        size = BATCH_SIZE_BODY if include_body else BATCH_SIZE
+        workers = BODY_WORKERS if include_body else BATCH_WORKERS
+        chunks = [collected[i:i + size]
+                  for i in range(0, len(collected), size)]
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for res in pool.map(fetch_batch, chunks):
+                fetched_by_id.update(res["ok"])
+                still_failing.extend(res["failed"])
+
+        # One more pass over whatever the batch could not deliver, one at a
+        # time. Rate-limit failures usually clear by themselves, and retrying
+        # a handful individually is cheap.
+        # Rate-limited items are not lost causes — they just arrived too
+        # fast. Re-batch them, paced, until nothing new comes back.
+        for _ in range(6):
+            retry_ids = [i for i in dict.fromkeys(still_failing)
+                         if i not in fetched_by_id]
+            if not retry_ids:
+                break
+            time.sleep(1.5)
+            still_failing = []
+            for i in range(0, len(retry_ids), BATCH_SIZE):
+                res = fetch_batch([{"id": m} for m in retry_ids[i:i + BATCH_SIZE]])
+                fetched_by_id.update(res["ok"])
+                still_failing.extend(res["failed"])
+
+    # Gmail's own ordering is preserved by walking `collected`, not the dict.
+    fetched = [
+        to_entry(m["id"], m.get("threadId", ""), fetched_by_id[m["id"]])
+        if m["id"] in fetched_by_id else None
+        for m in collected
+    ]
 
     results = [entry for entry in fetched if entry is not None]
     skipped = len(fetched) - len(results)

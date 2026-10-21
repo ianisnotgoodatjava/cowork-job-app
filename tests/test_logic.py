@@ -363,3 +363,61 @@ class TestSharedClassifier:
         than stop."""
         import text_classifier
         assert text_classifier.load(str(tmp_path / "absent.pkl")) is None
+
+
+class TestWorkdayFieldMatching:
+    """Workday identifies fields by data-automation-id and supplies neither
+    name nor aria-label -- the signals every other ATS gives. Before the
+    matcher read it, a Workday form filled nothing, which is 40 of the
+    applications in this sheet.
+    """
+
+    @staticmethod
+    def _label(automation_id: str) -> str:
+        """The same normalisation the emitted script applies."""
+        text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", automation_id)
+        text = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", text)
+        return re.sub(r"[_-]+", " ", text).lower()
+
+    @staticmethod
+    def _match(label: str):
+        """Longest matcher wins, as in the script."""
+        import autofill_bookmarklet as bm
+        best, best_len = None, 0
+        for keys, target in bm.MATCHERS:
+            for key in keys:
+                if key in label and len(key) > best_len:
+                    best, best_len = target, len(key)
+        return best
+
+    def test_camel_case_ids_become_matchable(self):
+        assert self._match(self._label("legalNameSection_firstName")) == "first_name"
+        assert self._match(self._label("addressSection_city")) == "address_city"
+
+    def test_letter_digit_boundary_is_split(self):
+        """addressLine1 must read 'address line 1'; without the split it
+        misses the matcher by a single space."""
+        assert self._label("addressSection_addressLine1") == "address section address line 1"
+        assert self._match(self._label("addressSection_addressLine1")) == "address_street"
+
+    def test_country_region_is_a_country_not_a_state(self):
+        """Both 'country' and 'region' appear in countryRegion. Longest match
+        has to win, or the state goes in the country field."""
+        assert self._match(self._label("addressSection_countryRegion")) == "address_country"
+
+    def test_emitted_script_has_no_line_comments(self):
+        """build() emits one line as a javascript: URL, where a // comment
+        silently truncates the entire rest of the script."""
+        import urllib.parse
+
+        import autofill_bookmarklet as bm
+        link = bm.build()
+        body = urllib.parse.unquote(
+            link[len("javascript:"):] if link.startswith("javascript:") else link)
+        assert "\n" not in body, "bookmarklet must stay on one line"
+        # Strip block comments and URL schemes first: a // inside /* */ is
+        # inert, and https:// is not a comment. What must not survive is a
+        # live line comment.
+        stripped = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+        stripped = re.sub(r"https?://", "", stripped)
+        assert "//" not in stripped, "a // comment truncates the whole script"

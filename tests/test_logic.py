@@ -421,3 +421,76 @@ class TestWorkdayFieldMatching:
         stripped = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
         stripped = re.sub(r"https?://", "", stripped)
         assert "//" not in stripped, "a // comment truncates the whole script"
+
+
+class TestEEOAnswers:
+    """The diversity, veteran and disability questions.
+
+    They are the ones left to retype on every application, because they are
+    never text boxes -- they are dropdowns and radio groups, and the fill
+    loop read neither. The answers were already decided; nothing could reach
+    the widgets.
+
+    These assert the answer chosen for a question, which is the part that
+    can go wrong silently. "Male" must not land on "Female", and a refused
+    question must stay refused now that two more element types are in play.
+    """
+
+    @staticmethod
+    def _answer(question: str):
+        """Mirrors answerFor(): refusals, then rules, then profile matchers."""
+        import autofill_bookmarklet as bm
+        import apply_autofill
+        q = question.lower()
+        never = (tuple(apply_autofill.NEVER_FILL) + bm.EEO_FIELDS
+                 + bm.CONSENT_FIELDS + bm.DECISIVE_FIELDS)
+        if any(n in q for n in never):
+            return None
+        rules = {"gender": "Male", "veteran": "I am not a protected veteran",
+                 "hispanic": "No", "disabilit": "No", "sponsor": "No"}
+        for key, value in rules.items():
+            if key in q:
+                return value
+        best, best_len = None, 0
+        for keys, target in bm.MATCHERS:
+            for key in keys:
+                if key in q and len(key) > best_len:
+                    best, best_len = target, len(key)
+        return best
+
+    @staticmethod
+    def _option_matches(text: str, want: str) -> bool:
+        """Mirrors optionMatches(): equality or word-start containment."""
+        text, want = text.strip().lower(), want.strip().lower()
+        return bool(text and want and
+                    (text == want or (" " + text).find(" " + want) > -1))
+
+    def test_gender_does_not_land_on_female(self):
+        """'female' contains 'male', so a bare substring test picks the
+        wrong option on the first dropdown of every EEO section."""
+        assert self._option_matches("Male", "Male")
+        assert not self._option_matches("Female", "Male")
+
+    def test_long_option_text_matches_a_short_answer(self):
+        """Real forms say 'No, I do not have a disability', not 'No'."""
+        assert self._option_matches("No, I do not have a disability", "No")
+        assert self._option_matches("I am not a protected veteran",
+                                    "I am not a protected veteran")
+
+    def test_veteran_and_disability_are_answered(self):
+        assert self._answer("Veteran status") == "I am not a protected veteran"
+        assert self._answer("Voluntary Self-Identification of Disability") == "No"
+        assert self._answer("Are you Hispanic or Latino?") == "No"
+        assert self._answer("Gender") == "Male"
+
+    def test_race_comes_from_the_profile_not_the_rules(self):
+        """It is the one EEO answer that lives in the matchers, so a handler
+        reading only the rules leaves blank the field this exists for."""
+        assert self._answer("Race / Ethnicity") == "race_ethnicity"
+
+    def test_pronouns_and_consent_stay_refused(self):
+        """Adding selects and radios put two new element types in front of
+        questions that were only ever refused on text inputs."""
+        assert self._answer("Preferred pronouns") is None
+        assert self._answer("I acknowledge the privacy policy") is None
+        assert self._answer("Social Security Number") is None

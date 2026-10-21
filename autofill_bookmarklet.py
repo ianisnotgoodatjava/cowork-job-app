@@ -192,6 +192,77 @@ def build() -> str:
   }
   if(best){set(el,P[best]);n++;}
  });
+ /* The diversity, veteran and disability questions are never text boxes.
+    They are dropdowns and radio groups, and the loop above reads neither --
+    which is why they were still being answered by hand on every
+    application. The answers themselves were already decided by RULES. */
+ function answerFor(L){
+  for(var i=0;i<NEVER.length;i++){if(L.indexOf(NEVER[i])>-1)return null;}
+  for(var r=0;r<RULES.length;r++){if(RULES[r][0].test(L))return RULES[r][1];}
+  /* Race and ethnicity are answered from the profile, not the rules, so a
+     handler that consults only RULES leaves the one dropdown the rest of
+     this block exists for. Longest match, as in the text loop. */
+  var best=null,bestLen=0;
+  for(var j=0;j<M.length;j++){
+   var keys=M[j][0], key=M[j][1];
+   for(var k=0;k<keys.length;k++){
+    if(P[key]&&L.indexOf(keys[k])>-1&&keys[k].length>bestLen){
+     best=P[key];bestLen=keys[k].length;}
+   }
+  }
+  return best;
+ }
+ /* Option text rarely equals the answer exactly: "No" has to find
+    "No, I do not have a disability", and "Male" must not match "Female".
+    Prefix and word-boundary only, never a bare substring. */
+ function optionMatches(text,want){
+  text=(text||'').trim().toLowerCase(); want=(want||'').trim().toLowerCase();
+  if(!text||!want)return false;
+  if(text===want)return true;
+  /* Word-start containment, done without a RegExp on purpose. "Male" must
+     not match "Female", so a bare indexOf is wrong; and building a RegExp
+     here means escaping the answer text through Python, the minifier and
+     the javascript: URL, where one lost backslash is a syntax error in the
+     whole script rather than a bad match. Padding with spaces gets the same
+     boundary with none of that. */
+  return (' '+text).indexOf(' '+want)>-1;
+ }
+ document.querySelectorAll('select').forEach(function(sel){
+  if(sel.value&&sel.value.trim())return;
+  var L=label(sel); if(!L)return;
+  var want=answerFor(L); if(want===null){skipped++;return;}
+  var opts=sel.options, picked=-1;
+  for(var i=0;i<opts.length;i++){
+   if(optionMatches(opts[i].text,want)){picked=i;break;}
+  }
+  if(picked<0){skipped++;return;}
+  sel.selectedIndex=picked;
+  sel.dispatchEvent(new Event('input',{bubbles:true}));
+  sel.dispatchEvent(new Event('change',{bubbles:true}));
+  n++;
+ });
+ /* Radios are grouped by name; the question lives on the fieldset, not on
+    the individual button, so the group is matched once and then the member
+    whose own label carries the answer is clicked. */
+ var groups={};
+ document.querySelectorAll('input[type=radio]').forEach(function(el){
+  if(!el.name)return; (groups[el.name]=groups[el.name]||[]).push(el);
+ });
+ Object.keys(groups).forEach(function(name){
+  var els=groups[name];
+  if(els.some(function(e){return e.checked;}))return;
+  var box=els[0].closest('fieldset,div[role=radiogroup],div');
+  var q=((box?box.innerText:'')+' '+label(els[0])).toLowerCase().replace(/\\s+/g,' ');
+  var want=answerFor(q); if(want===null){skipped++;return;}
+  for(var i=0;i<els.length;i++){
+   if(optionMatches(label(els[i]),want)){
+    els[i].click();
+    els[i].dispatchEvent(new Event('change',{bubbles:true}));
+    n++; return;
+   }
+  }
+  skipped++;
+ });
  alert('Filled '+n+' field(s). Left '+skipped+' for you.'
    +'\\n\\nAnswer work authorization (Yes) and sponsorship (No) yourself -'
    +'\\nkeyword matching cannot tell those two questions apart, and a wrong'

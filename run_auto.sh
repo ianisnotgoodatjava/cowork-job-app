@@ -14,7 +14,7 @@
 # once at 03:15 while the lighter pass ran three times, so a rejection
 # arriving at 09:00 sat undetected for eighteen hours -- which is how
 # outreach kept being drafted to desks that had already said no.
-cd "/ABSOLUTE/PATH/TO/THIS/PROJECT" || exit 1
+cd "$(dirname "$0")" || exit 1
 mkdir -p logs
 LOG="logs/auto-$(date +%Y-%m-%d).log"
 {

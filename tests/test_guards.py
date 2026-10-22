@@ -43,6 +43,23 @@ class TestNoUndefinedNames:
             "pyflakes found problems:\n" + result.stdout + result.stderr)
 
 
+class TestScheduledScriptsRun:
+    """The launchd scripts, run from wherever launchd starts them.
+
+    Making the README portable replaced the hard-coded `cd` in run_auto.sh
+    with the placeholder meant only for the plist template. Every scheduled
+    run then exited on line 17 into a stderr log nobody reads, and the sheet
+    went a week without a scan. A placeholder belongs in a template the
+    README tells you to fill in, never in a script that runs as-is.
+    """
+
+    def test_no_placeholder_in_a_runnable_script(self):
+        for name in os.listdir(ROOT):
+            if name.endswith(".sh"):
+                with open(os.path.join(ROOT, name), encoding="utf-8") as f:
+                    assert "/ABSOLUTE/PATH" not in f.read(), name
+
+
 class TestSeniorityBand:
     """Which titles are worth writing to.
 

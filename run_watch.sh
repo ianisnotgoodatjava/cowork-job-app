@@ -2,7 +2,7 @@
 # Fired by launchd at 06:00, 18:00 and 23:00 local (Eastern) time. Absolute
 # paths throughout: launchd starts with a bare environment and no working
 # directory.
-cd "/ABSOLUTE/PATH/TO/THIS/PROJECT" || exit 1
+cd "$(dirname "$0")" || exit 1
 mkdir -p logs
 LOG="logs/watch-$(date +%Y-%m-%d).log"
 {

@@ -44,7 +44,14 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
           f"{'  (dry-run)' if dry_run else ''}")
     print("=" * 68)
 
-    before = {r["row_number"] for r in sheets.list_rows()}
+    # The first network call of the pass, so it is the one that meets a
+    # network still waking up. Every step below reads the sheet; if it is
+    # still unreachable after the retry, there is nothing this pass can do.
+    rows = step(sheets.list_rows)
+    if rows is None:
+        print("\n  sheet unreachable -- pass abandoned, next scheduled run will retry")
+        return
+    before = {r["row_number"] for r in rows}
 
     print("\n[1/7] New applications from Gmail")
     step(app_scanner.scan, days_back=days_back, dry_run=dry_run)
@@ -55,7 +62,7 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     step(reply_scanner.scan, days_back=max(days_back, 120), dry_run=dry_run,
          use_calendar=False, notify=not dry_run)
 
-    after = sheets.list_rows()
+    after = step(sheets.list_rows) or rows
     added = len(after) - len(before)
     print(f"\n  {added} row(s) added this pass")
 

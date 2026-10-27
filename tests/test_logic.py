@@ -494,3 +494,82 @@ class TestEEOAnswers:
         assert self._answer("Preferred pronouns") is None
         assert self._answer("I acknowledge the privacy policy") is None
         assert self._answer("Social Security Number") is None
+
+
+class TestApplicationIdentity:
+    """One answer to "is this the same application?".
+
+    Five modules had their own version and they disagreed. `corrections` and
+    `auto_draft` kept the position verbatim while `job_finder` stripped the
+    ATS reference, so a status locked while the title still carried
+    "Job ID# 2025" stopped matching once `fix_positions` cleaned the title --
+    and the next scan re-applied the status the user had just corrected.
+    """
+
+    ATS_PAIR = ("U.S. Bank", "Investment Portfolio Analyst",
+                "Investment Portfolio Analyst Job ID# 2025")
+
+    def test_ats_reference_does_not_change_identity(self):
+        import app_identity
+        company, clean, noisy = self.ATS_PAIR
+        assert app_identity.key(company, clean) == app_identity.key(company, noisy)
+
+    def test_corrections_and_job_finder_agree(self):
+        """The disagreement that caused the bug, pinned shut."""
+        import corrections
+        import job_finder
+        company, clean, noisy = self.ATS_PAIR
+        for position in (clean, noisy):
+            assert (corrections.row_key(company, position)
+                    == job_finder._tracking_key(company, position))
+
+    def test_auto_draft_agrees_with_corrections(self):
+        import auto_draft
+        import corrections
+        company, clean, _ = self.ATS_PAIR
+        row = {"Company": company, "Position": clean}
+        assert auto_draft._key(row) == corrections.row_key(company, clean)
+
+    def test_locks_written_under_the_old_key_are_still_found(self):
+        """There are real locks on disk from before the consolidation."""
+        import app_identity
+        company, clean, noisy = self.ATS_PAIR
+        saved = {app_identity.legacy_key(company, noisy): "Applied"}
+        assert app_identity.lookup(saved, company, noisy) == "Applied"
+
+    def test_drafted_markers_match_under_either_spelling(self):
+        import app_identity
+        import auto_draft
+        company, clean, noisy = self.ATS_PAIR
+        row = {"Company": company, "Position": noisy}
+        done = {app_identity.legacy_key(company, noisy)}
+        assert auto_draft._already_done(row, done), "would re-bill a paid draft"
+
+    def test_identity_ignores_case_and_spacing(self):
+        import app_identity
+        assert (app_identity.key("KBRA", "Analyst")
+                == app_identity.key("kbra ", " analyst"))
+
+
+class TestWatchRowCounting:
+    """The pass used to report "0 row(s) added" on a pass that added eight."""
+
+    def test_key_survives_renumbering(self):
+        import watch
+        a = {"row_number": 12, "Company": "KBRA", "Position": "Analyst",
+             "Applied Draes": "9/1/2026"}
+        b = dict(a, row_number=480)
+        assert watch._row_key(a) == watch._row_key(b)
+
+    def test_additions_and_removals_do_not_cancel(self):
+        """Counting by length netted three added against three removed to zero."""
+        import watch
+        before = {watch._row_key({"Company": c, "Position": "Analyst",
+                                  "Applied Draes": "9/1/2026"})
+                  for c in ("A", "B", "C")}
+        after = {watch._row_key({"Company": c, "Position": "Analyst",
+                                 "Applied Draes": "9/1/2026"})
+                 for c in ("A", "D", "E")}
+        assert len(after - before) == 2
+        assert len(before - after) == 2
+        assert len(after) - len(before) == 0, "the old count said nothing changed"

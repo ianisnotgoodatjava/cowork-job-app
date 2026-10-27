@@ -29,6 +29,15 @@ import sheet_format
 import sheets
 
 
+def _row_key(row: dict) -> str:
+    """Identity that survives the sheet being re-sorted and renumbered."""
+    return "|".join((
+        (row.get("Company") or "").strip().lower(),
+        (row.get("Position") or "").strip().lower(),
+        (row.get("Applied Draes") or "").strip(),
+    ))
+
+
 def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         dry_run: bool = False, draft: bool = True,
         deep: bool | None = None) -> None:
@@ -51,7 +60,11 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     if rows is None:
         print("\n  sheet unreachable -- pass abandoned, next scheduled run will retry")
         return
-    before = {r["row_number"] for r in rows}
+    # Keyed on content, not row number: every pass re-sorts the sheet, so a
+    # row number identifies a different application afterwards. Counting
+    # those gave the net change, which read as "0 added" on a pass that added
+    # three rows and removed three duplicates.
+    before = {_row_key(r) for r in rows}
 
     print("\n[1/7] New applications from Gmail")
     step(app_scanner.scan, days_back=days_back, dry_run=dry_run)
@@ -62,9 +75,23 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     step(reply_scanner.scan, days_back=max(days_back, 120), dry_run=dry_run,
          use_calendar=False, notify=not dry_run)
 
-    after = step(sheets.list_rows) or rows
-    added = len(after) - len(before)
-    print(f"\n  {added} row(s) added this pass")
+    after = step(sheets.list_rows)
+    if after is None:
+        # Falling back to the rows read before the scanners ran reported
+        # "0 row(s) added" whenever this read failed — a wrong number that
+        # looked like a true one. Eight rows had in fact been added.
+        print("\n  (could not re-read the sheet; this pass's row count is "
+              "unknown, but the scanners above reported what they did)")
+    else:
+        now = {_row_key(r) for r in after}
+        added, removed = now - before, before - now
+        parts = []
+        if added:
+            parts.append(f"{len(added)} row(s) added")
+        if removed:
+            parts.append(f"{len(removed)} removed")
+        print(f"\n  {' and '.join(parts) if parts else 'no row changes'} "
+              f"this pass")
 
     # These two are why a new row is useful the moment it lands: the posting
     # link, then what the posting actually says. Both are plain HTTP, so they

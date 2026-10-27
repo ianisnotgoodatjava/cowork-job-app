@@ -18,11 +18,11 @@ onto an unrelated application within a day.
 The same records double as labelled training data — see `training_examples()`.
 """
 
+import app_identity
 import datetime
 import json
 import os
 
-from company_match import _core, normalize
 
 STORE = os.path.join("logs", "corrections.json")
 
@@ -30,10 +30,15 @@ _cache: dict | None = None
 
 
 def row_key(company: str, position: str) -> str:
-    """Stable identity for an application, independent of its row number."""
-    c = _core(company or "").replace(" ", "") or normalize(company or "").replace(" ", "")
-    p = " ".join(normalize(position or "").split())
-    return f"{c}|{p}"
+    """Stable identity for an application, independent of its row number.
+
+    Delegates to app_identity so this agrees with every other module's idea
+    of the same application. It previously kept the position verbatim, which
+    meant a lock saved while the title still carried "Job ID# 2025" stopped
+    matching once `fix_positions` cleaned the title — and the scanner then
+    re-applied the status the user had corrected.
+    """
+    return app_identity.key(company, position)
 
 
 def _load() -> dict:
@@ -94,7 +99,8 @@ def unlock(company: str, position: str, column: str | None = None) -> bool:
 
 def locked(row: dict, column: str) -> str | None:
     """The value you fixed this column to, or None if it was never corrected."""
-    entry = _load().get(row_key(row.get("Company", ""), row.get("Position", "")))
+    entry = app_identity.lookup(_load(), row.get("Company", ""),
+                                row.get("Position", ""))
     if not entry:
         return None
     lock = entry.get("locks", {}).get(column)

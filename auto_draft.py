@@ -61,10 +61,20 @@ def _mark_done(keys: set) -> None:
 
 
 def _key(row: dict) -> str:
-    """Identity that survives the sheet being sorted and rows renumbering."""
-    from company_match import _core, normalize
-    company = _core(row.get("Company", "")).replace(" ", "")
-    return f"{company}|{normalize(row.get('Position', ''))}"
+    """Identity that survives sorting, renumbering and ATS reference noise."""
+    import app_identity
+    return app_identity.row_key(row)
+
+
+def _already_done(row: dict, done: set) -> bool:
+    """True if this row was researched, under either key spelling.
+
+    The markers on disk predate the shared key, so both are checked — missing
+    one would re-research and re-bill an application already paid for.
+    """
+    import app_identity
+    return any(k in done for k in app_identity.keys_for(
+        row.get("Company", ""), row.get("Position", "")))
 
 # Delimited plain text rather than structured outputs. The response also
 # carries web-search result blocks, and this runs unattended overnight where a
@@ -473,7 +483,7 @@ def select_targets(rows: list[dict], limit: int, min_fit: float,
                 if not re.search(exclude, r.get("Company") or "", re.I)]
     done = _done()
     if new_only:
-        rows = [r for r in rows if _key(r) not in done]
+        rows = [r for r in rows if not _already_done(r, done)]
 
     # Findability first, fit second. Every row costs the same in web searches,
     # but they are not equally likely to yield anything: a rating agency

@@ -5,7 +5,7 @@ that reached main anyway:
 
   * A refactor left `done` and `batch_outreach` undefined inside
     auto_draft.run. Both are NameErrors on a path that only runs with a
-    Claude credential set, so nothing here imported it, no test touched it,
+    model credential set, so nothing here imported it, no test touched it,
     and the suite stayed green. pyflakes finds that class in a tenth of a
     second; not running it is the only reason it shipped.
 

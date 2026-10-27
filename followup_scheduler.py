@@ -16,8 +16,8 @@ nothing can drift out of sync with what was actually sent:
 
 Drafts only. Nothing is sent. Each draft is a reply inside the original
 thread, so it lands under the first email in both inboxes. The words come
-from the same subscription-backed CLI path auto_draft uses, conditioned on
-his own verified follow-ups.
+from the same Muse model auto_draft uses, conditioned on his own verified
+follow-ups.
 """
 import sender_profile
 
@@ -141,8 +141,8 @@ def candidates(min_age_days: int = 7, max_age_days: int = 30,
 
 
 def draft_body(cand: dict) -> str:
-    """One follow-up in his voice, via the subscription-backed CLI."""
-    from auto_draft import _via_cli
+    """One follow-up in his voice. No search: it only rewrites his own email."""
+    import muse
 
     profile = followup_model.prompt_block(area=cand["subject"])
     system = (SYSTEM.replace("{FOLLOWUP_PROFILE}", profile)
@@ -154,7 +154,7 @@ def draft_body(cand: dict) -> str:
         f"Subject: {cand['subject']}\n\n{cand['original_body']}\n\n"
         f"Write the follow-up."
     )
-    text = _via_cli(system, prompt).strip()
+    text = muse.respond(system, prompt, effort="medium").strip()
     # Belt and braces: if the model wraps the body in a code fence or
     # prefixes a label, keep only what starts at the greeting.
     text = re.sub(r"^```.*?\n|```$", "", text, flags=re.S).strip()

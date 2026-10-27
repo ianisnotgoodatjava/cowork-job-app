@@ -2,7 +2,7 @@
 
 `batch_outreach` writes the scaffolding and stops at [[WHO]] and [[HOOK]],
 because plain Python cannot find out who works on a desk. `auto_draft` fills
-those in through the Claude API. This sits between them: the research and the
+those in through the Muse API. This sits between them: the research and the
 hook come in as arguments — from the API, or from a person who did the
 reading — and everything mechanical is handled here.
 

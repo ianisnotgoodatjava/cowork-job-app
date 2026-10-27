@@ -1,7 +1,7 @@
 """Drafts outreach for every recent application that has a reachable contact.
 
 `draft_writer` finishes one email when somebody has already done the research.
-`auto_draft` does the research through the Claude API. This covers the case in
+`auto_draft` does the research through Meta's Muse API. This covers the case in
 between, which turns out to be most of them: the person is already in your
 mailbox, so no research is needed at all — only matching them to the right
 application and writing something specific enough to be worth reading.

@@ -11,8 +11,8 @@ rejection rate, the open-application list, the fit ranking all assume a row
 means "I applied to this". Recommendations go to a file; logging one is a
 decision you make by running `log-application`.
 
-Needs ANTHROPIC_API_KEY: the searching happens server-side inside the API
-call, the same mechanism `auto_draft` uses.
+Needs MODEL_API_KEY: the searching happens server-side inside the Muse
+request, the same mechanism `auto_draft` uses.
 """
 
 import sender_profile
@@ -20,10 +20,10 @@ import datetime
 import os
 import re
 
+import muse
 import resume_bank
 import sheets
 
-MODEL = "claude-opus-5"
 OUT_DIR = os.path.join("logs", "recommendations")
 
 # Where this background actually competes. Written as search intents rather
@@ -114,21 +114,10 @@ def _already_tracked(rows: list[dict]) -> set:
 
 def run(areas: list[str] | None = None, per_area: int = 4,
         out_dir: str = OUT_DIR, skip_tracked_companies: bool = False) -> None:
-    try:
-        import anthropic
-    except ImportError:
-        raise SystemExit("pip install anthropic")
-    if not (os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        raise SystemExit(
-            "No Anthropic credentials. Set ANTHROPIC_API_KEY in .env.\n"
-            "The searching runs server-side inside the API call, so this is\n"
-            "the one feature that cannot work without it."
-        )
+    muse.require()
 
     from company_match import _core
 
-    client = anthropic.Anthropic()
     rows = sheets.list_rows()
     tracked = _already_tracked(rows)
     areas = areas or SEARCH_AREAS
@@ -144,29 +133,15 @@ def run(areas: list[str] | None = None, per_area: int = 4,
             "Focus on New York City, then elsewhere in the US.\n"
             "Report only postings you have actually opened in this search."
         )
+        system = SYSTEM.replace(
+            "{BACKGROUND}", resume_bank.background("job_search")
+        ).replace("{SENDER_NAME}", sender_profile.get("name"))
         try:
-            with client.messages.stream(
-                model=MODEL,
-                max_tokens=8000,
-                system=SYSTEM.replace(
-                    "{BACKGROUND}", resume_bank.background("job_search")
-                ).replace("{SENDER_NAME}", sender_profile.get("name")),
-                thinking={"type": "adaptive"},
-                output_config={"effort": "high"},
-                tools=[{"type": "web_search_20260209", "name": "web_search",
-                        "max_uses": 10}],
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
-                message = stream.get_final_message()
+            text = muse.respond(system, prompt, web_search=True)
         except Exception as exc:
             print(f"    ! {type(exc).__name__}: {str(exc)[:120]}")
             continue
 
-        if message.stop_reason == "refusal":
-            print("    ! refused")
-            continue
-
-        text = "\n".join(b.text for b in message.content if b.type == "text")
         for job in _parse_jobs(text):
             company = _core(job["company"]).replace(" ", "")
             key = _tracking_key(job["company"], job["title"])

@@ -9,12 +9,11 @@ Step 4 deliberately stops at reporting. Finding the right person at a
 company needs web search and a judgement call about seniority and team fit
 that this script cannot make on its own — and a draft to the wrong person,
 sent under your name, is worse than no draft. Run the reported rows through
-the outreach flow (`outreach-examples` -> `draft-outreach-email`) with
-Claude, which can do the search and the judging.
+the outreach flow (`outreach-examples` -> `draft-outreach-email`), or set
+MODEL_API_KEY and let `auto-draft` do the search and the judging.
 """
 
 import datetime
-import os
 
 import app_scanner
 import rejection_scanner
@@ -147,20 +146,21 @@ def run(days_back: int = 30, dry_run: bool = False) -> None:
     # both need web research this script has no way to do: it runs as plain
     # Python against Gmail and Sheets, with no browser and no model behind it.
     # So the skeleton is automated and [[WHO]]/[[HOOK]] are left for you.
-    # With an Anthropic key set, the same step finishes the job instead of
+    # With a Muse key set, the same step finishes the job instead of
     # leaving placeholders: auto_draft researches a real mid-level person and
     # something they published, checks the address against what has actually
     # been delivered at that domain, and leaves a Gmail draft with a real
     # recipient. Without a key it falls back to the skeletons, which is the
     # most this can do on Gmail and Sheets alone.
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+    import muse
+    if muse.available():
         import auto_draft
         _step(auto_draft.run, limit=10, min_fit=1.0,
               dry_run=False, create_drafts=True, new_only=True)
     else:
         import batch_outreach
         _step(batch_outreach.run, limit=15, min_fit=1.0)
-        print("\n  (set ANTHROPIC_API_KEY in .env and this step researches the "
+        print("\n  (set MODEL_API_KEY in .env and this step researches the "
               "contact\n   and finishes the email instead of leaving "
               "[[WHO]]/[[HOOK]] placeholders)")
 

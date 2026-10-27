@@ -693,7 +693,7 @@ def main():
     p.add_argument("--check", help="Check one address against that domain's history")
     p.set_defaults(func=cmd_addresses)
 
-    p = sub.add_parser("auto-draft", help="Research a real contact and write a finished outreach email per application, via the Claude API (costs money)")
+    p = sub.add_parser("auto-draft", help="Research a real contact and write a finished outreach email per application, via Meta's Muse API (costs money)")
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--min-fit", type=float, default=2.0)
     p.add_argument("--write-drafts", action="store_true", help="Also create the Gmail drafts (still unsent)")

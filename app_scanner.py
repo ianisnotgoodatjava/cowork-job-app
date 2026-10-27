@@ -487,7 +487,7 @@ def scan(days_back: int = 730, dry_run: bool = False,
     # Finding that person needs a live web search, which plain Python against
     # Gmail and Sheets cannot do. `cli.py auto-draft` (auto_draft.py) is the
     # piece that can: it researches a real mid-level contact and writes the
-    # email in one Claude API call. It needs ANTHROPIC_API_KEY set.
+    # email in one Muse request. It needs MODEL_API_KEY set.
     print("\nTo research a contact and write the email for these:")
     print("  ./venv/bin/python cli.py auto-draft --limit "
           f"{len(new_rows)} --write-drafts")

@@ -1,7 +1,7 @@
 """Tests for the parts that decide something.
 
 Scope is deliberate: the pure logic, with no Gmail client, Google Sheet or
-Claude credential involved. Those paths are exercised by running the tool;
+model credential involved. Those paths are exercised by running the tool;
 what is worth pinning down here is the reasoning -- how an address is
 trusted, what counts as a follow-up, how a posting becomes a draft.
 

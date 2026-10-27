@@ -12,7 +12,7 @@ work in between:
   4. email you a short note if anything is waiting on a reply.
 
 Step 3 is the only part that costs money, and it is the only part that needs
-ANTHROPIC_API_KEY. Without the key the pass still does 1, 2 and 4 and says
+MODEL_API_KEY. Without the key the pass still does 1, 2 and 4 and says
 so — a scheduled job that half-works and reports it beats one that dies.
 
 Nothing here sends mail on your behalf. Outreach lands as Gmail *drafts*;
@@ -20,10 +20,10 @@ the only message that leaves is the reminder to your own address.
 """
 
 import datetime
-import os
 
 import app_scanner
 import auto_pipeline
+import muse
 import rejection_scanner
 import sheet_format
 import sheets
@@ -108,12 +108,9 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         step(enrich.run, limit=60, dry_run=False)
 
     print("\n[5/7] Researching postings and drafting outreach")
-    import auto_draft as _ad
-    if not (_ad._have_api_key() or _ad._cli_ready()):
-        print("  skipped — no way to reach Claude.\n"
-              "  Everything else in this pass ran. Either run `claude` and\n"
-              "  `/login` (uses the existing subscription, no extra cost), or\n"
-              "  put ANTHROPIC_API_KEY in .env.")
+    if not muse.available():
+        print("  skipped — no MODEL_API_KEY in .env.\n"
+              "  Everything else in this pass ran.")
     elif not draft:
         print("  skipped — drafting disabled for this pass")
     else:
@@ -153,12 +150,11 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
             step(fix_positions.run, dry_run=False, days_back=520)
             step(location_backfill.run, dry_run=False)
             step(network_audit.run, days_back=460, dry_run=False)
-            if os.environ.get("ANTHROPIC_API_KEY") or \
-                    os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+            if muse.available():
                 import job_finder
                 step(job_finder.run)
             else:
-                print("  find-jobs skipped — no ANTHROPIC_API_KEY set")
+                print("  find-jobs skipped — no MODEL_API_KEY set")
 
     print("\n[7/8] Sort and colour")
     if dry_run:

@@ -65,7 +65,7 @@ python -m pytest tests/ -q
 
 They cover the parts that decide something — how much an email address can
 be trusted, which sheet row a saved contact belongs to, and the hand-typed
-date formats — and need no Gmail, Sheet or Claude credential to run. Several
+date formats — and need no Gmail, Sheet or Muse credential to run. Several
 encode a bug that actually shipped: the address-confidence tests exist
 because the obvious implementation reads the word "inferred" in a research
 note and gets the answer exactly backwards.
@@ -332,9 +332,9 @@ python cli.py auto-draft --exclude 'some-company'              # leave one out
 python cli.py auto-draft --redo                                # re-research done rows
 ```
 
-It needs an LLM. With `ANTHROPIC_API_KEY` set it uses the API; without one it
-shells out to the `claude` CLI, which runs on a Claude subscription at no
-extra cost. Research lands in `logs/drafts/auto/` as text first — turn that
+It needs an LLM: Meta's Muse Spark, through the Meta Model API with its
+built-in web search. Put `MODEL_API_KEY` in `.env` (get one at
+https://dev.meta.ai); `MUSE_MODEL` picks a different Muse model. Research lands in `logs/drafts/auto/` as text first — turn that
 into sheet contacts and Gmail drafts with `stage-drafts`, which re-reads the
 saved research rather than paying to research again.
 

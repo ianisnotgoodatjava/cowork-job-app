@@ -5,7 +5,7 @@ writes the skeleton and stops at [[WHO]] and [[HOOK]], because the nightly job
 is plain Python against Gmail and Sheets — it has no way to look up who works
 on a desk or read what they have published.
 
-The Claude API closes that gap: the server-side web search tool runs the
+A Muse request closes that gap: the built-in web search tool runs the
 research inside the same request that writes the email. So this module does
 end to end what the good emails in this repo were written by hand:
 
@@ -32,12 +32,12 @@ import os
 import re
 import time
 
+import muse
 import resume_bank
 import sender_profile
 import sheets
 import status as status_mod
 
-MODEL = "claude-opus-5"
 OUT_DIR = os.path.join("logs", "drafts", "auto")
 
 # Rows already researched. The watcher runs every few hours over the same
@@ -183,183 +183,7 @@ def _parse(text: str) -> dict:
     return out
 
 
-def _via_cli(system: str, prompt: str, timeout: int = 1200) -> str:
-    """Run the same request through the `claude` CLI instead of the API.
-
-    The API path needs ANTHROPIC_API_KEY, which is a second bill on top of a
-    Claude subscription that is already paid for. The CLI is signed in to
-    that subscription and can be driven headlessly, so the only difference
-    is which credential does the work -- the prompt, the parsing, the
-    address check and the style gate are all unchanged.
-
-    WebSearch has to be granted explicitly. Without --allowed-tools the
-    headless run has no search, and this whole step exists to look people up.
-
-    Two failures are worth waiting out rather than giving up on. A request
-    that runs Opus through eight web searches streams for a minute or more,
-    and the connection dropping mid-stream is ordinary -- the same request
-    succeeds on the next try. And the subscription's usage window is shared
-    with interactive Claude Code sessions, so a 429 here often means "the
-    window is full right now", not "never". Anything else is real and is
-    raised as before.
-    """
-    import subprocess
-
-    # Disallowing Task is deliberate. Left to itself the CLI spawns a research
-    # subagent that runs twenty-odd searches per contact -- the API path was
-    # designed around max_uses=8 -- and one such run consumed the whole
-    # subscription usage window before it could finish writing. The
-    # Only Task and Bash are named. The CLI refuses the whole command if a
-    # deny rule names a tool it does not have, and the tool set differs
-    # between versions -- "MultiEdit" once cost a full batch that way. Task
-    # is the one that multiplies cost; Bash is the one with no place here.
-    # The file-editing tools are harmless to a prompt that never asks for
-    # them, so they are left alone rather than guessed at.
-    argv = ["claude", "-p", prompt,
-            "--append-system-prompt", system,
-            "--allowed-tools", "WebSearch,WebFetch",
-            "--disallowed-tools", "Task,Bash",
-            "--model", MODEL]
-    transient = ("connection closed", "rate limit", "429",
-                 "try again later", "overloaded", "timed out",
-                 "unable to connect", "enotfound", "econnreset",
-                 "etimedout", "network")
-    max_attempts = 4
-
-    # A clean environment for the child. When this runs from inside an
-    # interactive Claude Code session, the subprocess inherits ~27 session
-    # variables -- CLAUDECODE=1, CLAUDE_CODE_CHILD_SESSION=1, the messaging
-    # socket, the session id -- and reads as a nested child of that session,
-    # picking up its permission rules. One such run failed outright with
-    # "Permission deny rule 'MultiEdit' matches no known tool". The launchd
-    # job never has any of that, so the two paths behaved differently.
-    # Keep only what the CLI needs: the credential, PATH, HOME.
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith("CLAUDE")}
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            result = subprocess.run(argv, capture_output=True, text=True,
-                                    timeout=timeout, env=env)
-        except subprocess.TimeoutExpired:
-            detail = f"timed out after {timeout}s"
-        else:
-            if result.returncode == 0:
-                return result.stdout
-            detail = (result.stderr or result.stdout or "").strip()[:200]
-
-        lowered = detail.lower()
-        if "not logged in" in lowered or "/login" in detail:
-            raise SystemExit(
-                "The claude CLI is installed but not signed in.\n"
-                "Run `claude` in a terminal, then `/login`, and this step\n"
-                "works on your existing subscription with no API key.")
-        if not any(marker in lowered for marker in transient):
-            raise RuntimeError(f"claude CLI failed: {detail}")
-        # A 429 that says the request "would exceed" the limit is a size or
-        # quota ceiling, not a burst that clears in a minute. Retrying it
-        # spent four more attempts of quota on an identical request and
-        # tripped the account's usage limit twice on fresh resets. One try,
-        # then hand it to the next scheduled run.
-        if "would exceed" in lowered or "usage limit" in lowered:
-            raise RuntimeError(
-                f"claude CLI rate-limited: {detail[:120]}\n"
-                "    Not retrying -- this is a quota ceiling, and the next "
-                "scheduled pass\n    will pick the row up when the window "
-                "resets.")
-        if attempt == max_attempts:
-            raise RuntimeError(f"claude CLI failed after {max_attempts} "
-                               f"attempts: {detail}")
-
-        # Usage-window 429s clear on the window's own schedule, so the wait
-        # is minutes, not seconds; a dropped connection needs almost none.
-        wait = 120 * attempt if "429" in lowered or "rate limit" in lowered \
-            else 10 * attempt
-        print(f"    {detail[:60]} — retrying in {wait}s "
-              f"(attempt {attempt}/{max_attempts})", flush=True)
-        time.sleep(wait)
-
-
-def _credential() -> str:
-    """Which credential is available, and therefore which path to take.
-
-    The two are not interchangeable, which cost a full debugging pass to
-    learn. A metered API key (sk-ant-api03-) reaches every model over the
-    Messages API. A subscription OAuth token (sk-ant-oat01-, what
-    `claude setup-token` prints) does not: over the raw API it is throttled
-    to Haiku, and every Opus and Sonnet request comes back 429 no matter how
-    long you back off. The same token driving the `claude` CLI runs Opus
-    with web search perfectly well, because that path bills against the
-    subscription's own entitlements instead.
-
-    So the token is not the deciding factor -- its *type* is.
-    """
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-
-    # An oat01 token in either variable means CLI, not API.
-    for value in (key, token):
-        if value.startswith("sk-ant-oat01-"):
-            return "cli"
-    if key or token:
-        return "api"
-    return "none"
-
-
-def _have_api_key() -> bool:
-    return _credential() == "api"
-
-
-def _cli_ready() -> bool:
-    """Whether the claude CLI exists and is signed in."""
-    import shutil
-    import subprocess
-    if not shutil.which("claude"):
-        return False
-    try:
-        out = subprocess.run(["claude", "-p", "ok"], capture_output=True,
-                             text=True, timeout=60)
-    except Exception:
-        return False
-    return "not logged in" not in (out.stdout + out.stderr).lower()
-
-
-def _stream_with_retry(client, max_attempts: int = 6, **kwargs):
-    """Runs client.messages.stream(**kwargs), retrying on 429s.
-
-    A batch of 10 sequential single-row requests against the subscription
-    (OAuth) credential hit RateLimitError on every single one — that
-    credential's per-minute limit is far tighter than a metered API key's,
-    and nothing here was slowing down between requests to respect it. This
-    honors the API's Retry-After header when it sends one, and otherwise
-    backs off exponentially, so a batch degrades to "slower" instead of
-    "produces nothing."
-    """
-    import anthropic
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            with client.messages.stream(**kwargs) as stream:
-                return stream.get_final_message()
-        except anthropic.RateLimitError as exc:
-            if attempt == max_attempts:
-                raise
-            retry_after = None
-            response = getattr(exc, "response", None)
-            if response is not None:
-                header = response.headers.get("retry-after")
-                if header:
-                    try:
-                        retry_after = float(header)
-                    except ValueError:
-                        pass
-            wait = retry_after or min(60, 5 * 2 ** (attempt - 1))
-            print(f"    rate limited — waiting {wait:.0f}s "
-                  f"(attempt {attempt}/{max_attempts})", flush=True)
-            time.sleep(wait)
-
-
-def draft_for_row(client, row: dict) -> dict:
+def draft_for_row(row: dict) -> dict:
     """Researches and writes one email. Returns the parsed fields."""
     company = (row.get("Company") or "").strip()
     role = (row.get("Position") or "").strip()
@@ -374,20 +198,6 @@ def draft_for_row(client, row: dict) -> dict:
         + "\nFind the live posting for this exact role, pick the right "
           "person, and write the email."
     )
-
-    # The subscription path has a much tighter rate window than a metered
-    # key. The full job -- three contacts, up to eight searches each, results
-    # accumulating into context -- was rejected outright with "this request
-    # would exceed your account's rate limit", twice, on fresh resets. One
-    # contact and three searches fits; the output format is unchanged so the
-    # parser and the address check downstream do not care.
-    if client is None:
-        prompt += (
-            "\n\nBUDGET FOR THIS RUN: find ONE contact only and use at most "
-            "3 web searches. Fill CONTACT block 1; put UNKNOWN in "
-            "CONTACT_NAME_2 and CONTACT_NAME_3 and leave their other fields "
-            "empty. Keep thinking brief."
-        )
 
     # The measured style is injected here rather than baked into SYSTEM, so
     # rebuilding the corpus after more mail goes out moves the target instead
@@ -408,37 +218,13 @@ def draft_for_row(client, row: dict) -> dict:
         f'He asks for 15-20 minutes and signs off '
         f'"{sender_profile.sign_off().replace(chr(10), ", ")}".')
 
-    # No key means no client, and the CLI does the same work on the
-    # subscription instead. Everything after this point is identical either
-    # way: same parse, same address check, same style gate.
-    if client is None:
-        text = _via_cli(system, prompt)
-        fields = _parse(text)
-        fields["_raw"] = text
-        return fields
+    # The research runs inside the same request that writes the email: web
+    # search is a built-in tool, so there is no separate lookup step.
+    try:
+        text = muse.respond(system, prompt, web_search=True)
+    except RuntimeError as exc:
+        return {"error": str(exc)}
 
-    # Streaming because web search plus a full email routinely runs long
-    # enough to trip the non-streaming HTTP timeout.
-    message = _stream_with_retry(
-        client,
-        model=MODEL,
-        max_tokens=8000,
-        system=system,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "high"},
-        tools=[{
-            "type": "web_search_20260209",
-            "name": "web_search",
-            "max_uses": 8,
-        }],
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    if message.stop_reason == "refusal":
-        detail = getattr(message, "stop_details", None)
-        return {"error": f"refused: {getattr(detail, 'category', 'unknown')}"}
-
-    text = "\n".join(b.text for b in message.content if b.type == "text")
     fields = _parse(text)
     fields["_raw"] = text
     return fields
@@ -451,7 +237,7 @@ def select_targets(rows: list[dict], limit: int, min_fit: float,
     """Which applications to spend research on, and in what order.
 
     Returns (eligible_rows, targets). Separated from run() so the ranking can
-    be read -- and tested -- without a Claude credential or a Gmail client
+    be read -- and tested -- without a model credential or a Gmail client
     in the way.
     """
     import batch_outreach
@@ -545,10 +331,6 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         skip_interviewing: bool = True,
         prefer: str | None = None,
         exclude: str | None = None) -> None:
-    # The credential's type picks the path -- see _credential(). A metered
-    # key goes over the API because it is faster; a subscription token has
-    # to go through the CLI, because over the API it is capped at Haiku,
-    # which cannot use the web search this step is built around.
     # Local, like the other cross-module imports here: batch_outreach pulls in
     # draft_writer and contact_finder, and importing it at module scope makes
     # the cycle real.
@@ -559,22 +341,7 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
     # still saves it at the end, so it has to exist here too.
     done = _done()
 
-    client = None
-    if _credential() == "api":
-        try:
-            import anthropic
-        except ImportError:
-            raise SystemExit("pip install anthropic")
-        client = anthropic.Anthropic()
-    elif not _cli_ready():
-        raise SystemExit(
-            "No way to reach Claude, so the research step cannot run.\n"
-            "\n"
-            "Either:\n"
-            "  run `claude` in a terminal and then `/login`  (no extra cost —\n"
-            "  uses the subscription you already pay for), or\n"
-            "  put ANTHROPIC_API_KEY in .env  (a few cents per application)."
-        )
+    muse.require()
 
     rows, targets = select_targets(
         [r for r in sheets.list_rows() if status_mod.is_open(r.get("Status", ""))],
@@ -592,7 +359,7 @@ def run(limit: int = 5, min_fit: float = 2.0, dry_run: bool = True,
         label = f"{row['Company'][:26]} | {row['Position'][:34]}"
         print(f"  researching {label} ...", flush=True)
         try:
-            fields = draft_for_row(client, row)
+            fields = draft_for_row(row)
         except Exception as exc:
             print(f"    ! {type(exc).__name__}: {str(exc)[:140]}")
             continue

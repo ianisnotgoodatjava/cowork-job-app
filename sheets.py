@@ -118,6 +118,27 @@ def append_job_row(job: dict) -> int:
     return next_row
 
 
+def _writable(updates: dict) -> dict:
+    """Resolves each key to a column this sheet actually has.
+
+    Rows are read back through `_with_aliases`, so a caller sees "Location"
+    and "Applied Date" whether or not the sheet spells them that way. A
+    write keyed by the spelling it just read was then dropped by the
+    `in _COL_LETTER` filter below -- silently, since a dropped column is the
+    documented behaviour for a column the sheet no longer has. Translating
+    the canonical spelling back to this sheet's own makes a write accept
+    exactly what a read produced.
+    """
+    to_legacy = {canonical: legacy for legacy, canonical in RENAMED.items()}
+    out = {}
+    for header, value in updates.items():
+        if header not in _COL_LETTER:
+            header = to_legacy.get(header, header)
+        if header in _COL_LETTER:
+            out[header] = value
+    return out
+
+
 def update_row(row_number: int, updates: dict):
     """Updates specific columns (by header name) on an existing row, in one
     batched write rather than one request per column.
@@ -131,7 +152,7 @@ def update_row(row_number: int, updates: dict):
     data = [
         {"range": f"{SHEET_TAB}!{_COL_LETTER[header]}{row_number}",
          "values": [[value]]}
-        for header, value in updates.items() if header in _COL_LETTER
+        for header, value in _writable(updates).items()
     ]
     if not data:
         return
@@ -159,7 +180,7 @@ def update_rows(patches: dict[int, dict], chunk: int = 500) -> int:
         {"range": f"{SHEET_TAB}!{_COL_LETTER[header]}{row_number}",
          "values": [[value]]}
         for row_number, updates in patches.items()
-        for header, value in updates.items() if header in _COL_LETTER
+        for header, value in _writable(updates).items()
     ]
     if not data:
         return 0

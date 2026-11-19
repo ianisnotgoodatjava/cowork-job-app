@@ -24,6 +24,7 @@ Read-only. It never sends, drafts, or writes to the sheet.
 import collections
 import re
 
+from core.config import NETWORKING_KEYWORDS
 from store import gmail_client
 from sources import interview_signals
 from core.config import ME_RE
@@ -62,9 +63,11 @@ def _address_style(address: str) -> str:
 
 
 def analyse(days_back: int = 520, limit: int = 600) -> None:
-    import cli
-
-    query = f"in:sent newer_than:{days_back}d {cli.NETWORKING_KEYWORDS}"
+    # Read from core.config, where it is defined. This used to reach into
+    # cli.py for the same constant, which made the command line something the
+    # layers depended on — and broke outright the moment cli.py stopped
+    # importing it.
+    query = f"in:sent newer_than:{days_back}d {NETWORKING_KEYWORDS}"
     print(f"Searching Gmail: {query}\n", flush=True)
     sent = gmail_client.search_messages(query, max_results=limit,
                                         include_body=True)

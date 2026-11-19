@@ -56,6 +56,36 @@ def _modules():
                 yield layer, name[:-3], os.path.join(folder, name)
 
 
+def _entry_points():
+    for name in architecture.ENTRY_POINTS:
+        yield name, os.path.join(ROOT, name)
+
+
+class TestEntryPoints:
+    """The root scripts, which the layer walk above cannot see."""
+
+    def test_entry_points_exist(self):
+        for name, path in _entry_points():
+            assert os.path.exists(path), f"{name} is declared and missing"
+
+    def test_nothing_imports_an_entry_point(self):
+        """An entry point is a leaf. Importing cli.py from a layer would make
+        the command line part of the system rather than a way into it."""
+        names = {n[:-3] for n, _ in _entry_points()}
+        bad = [f"{layer}/{module} imports {dep}"
+               for layer, module, path in _modules()
+               for dep in _local_imports(path) if dep in names]
+        assert not bad, bad
+
+    def test_an_entry_point_holds_no_logic(self):
+        """cli.py was 951 lines, 378 of them argparse and 400 of them handler
+        bodies. Both moved to console/, and this keeps them out."""
+        for name, path in _entry_points():
+            source = open(path).read()
+            lines = len(source.split("\n"))
+            assert lines < 120, f"{name} is {lines} lines; logic belongs in a layer"
+
+
 class TestLayering:
     def test_no_module_imports_from_a_higher_layer(self):
         bad = []

@@ -17,9 +17,11 @@ because sources and sheetops each imported the other.
     apply     helping fill an application in.
     outreach  writing and managing drafts.
     flows     orchestration only; no logic of its own.
+    console   the command line: a table of commands and their handlers.
 """
 
-LAYERS = ["core", "store", "sources", "people", "sheetops", "apply", "outreach", "flows"]
+LAYERS = ["core", "store", "sources", "people", "sheetops", "apply",
+          "outreach", "flows", "console"]
 
 LAYOUT = {
     # core: pure logic, no IO, no other layer
@@ -53,4 +55,14 @@ LAYOUT = {
               "cover_letter", "prep_package", "resume_pdf", "setup_wizard"],
     # flows: orchestration only
     "flows": ["auto_pipeline", "watch"],
+    # console: the command line. commands.py is a table and imports nothing
+    # from the layers at all; handlers.py is the only module allowed to reach
+    # across all of them, because adapting a Namespace to a call is its job.
+    "console": ["commands", "handlers"],
 }
+
+# Scripts at the repository root. cli.py is the largest file in the project
+# and was never checked by anything, because the layering test only walked
+# the layer folders. An entry point may import from any layer — that is what
+# makes it an entry point — but nothing may import *it*.
+ENTRY_POINTS = ["cli.py"]

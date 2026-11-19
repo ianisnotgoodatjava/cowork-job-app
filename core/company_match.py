@@ -122,6 +122,16 @@ _VENDOR_DOMAIN_MARKERS = (
     "eightfold", "bamboohr", "paylocity", "ultipro", "dayforce", "adp.com",
     "workflow.mail", "brightmove", "trinethire", "ripplematch", "handshake",
     "symplicity", "sendgrid", "mailchimp", "amazonses",
+    # Measured, not guessed: every one of these sent a confirmation the
+    # parser could not read, because a domain nobody had marked as a
+    # vendor's is treated as the employer's own. Marking them is also what
+    # lets the ATS parser look for the employer elsewhere in the message —
+    # "marex.breezy-mail.com" names Marex in its subdomain, and
+    # "us.greenhouse-mail.io" names Carvana in its subject.
+    "breezy-mail", "breezy.hr", "rippling", "paycom", "saashr", "ukgready",
+    "applytojob", "applyresponse", "jobtarget", "clearcompany", "workable",
+    "recruitee", "jazzhr", "hirebridge", "insperity", "cluster.tal.net",
+    "myworkdayjobs", "greenhouse-mail",
 )
 
 

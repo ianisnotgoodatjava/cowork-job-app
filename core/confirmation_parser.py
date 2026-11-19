@@ -36,8 +36,7 @@ from dataclasses import dataclass
 from core import role_extract
 from core.job_title import tidy_role
 from core.company_match import (
-    GENERIC_DOMAINS, _domain_label, _is_vendor_domain,
-    company_mentioned, normalize,
+    GENERIC_DOMAINS, _domain_label, _is_vendor_domain, company_mentioned,
 )
 
 
@@ -359,8 +358,20 @@ _NOT_AN_APPLICATION_RE = re.compile(
     r"talent\s+(?:community|network|pool)", re.I)
 
 
+# "Group One Trading - Jobs Alerts" <...@u1821112.wl.sendgrid.net>. The
+# subject of an alert digest is whatever this week's marketing line is
+# ("Ever felt like there's a secret handshake to landing jobs"), so the
+# subject rules cannot see it. The display name says plainly what it is.
+_ALERT_SENDER_RE = re.compile(
+    r"\b(?:job|jobs)\s*alerts?\b|\balerts?\b\s*$|\bdigest\b|"
+    r"\bnewsletter\b|\bmarketing\b", re.I)
+
+
 def _not_an_application(msg: dict) -> bool:
-    return bool(_NOT_AN_APPLICATION_RE.search(msg.get("subject", "")))
+    if _NOT_AN_APPLICATION_RE.search(msg.get("subject", "")):
+        return True
+    display = (msg.get("from", "") or "").split("<")[0]
+    return bool(_ALERT_SENDER_RE.search(display))
 
 # ------------------------------------------------------- the sender's parts
 
@@ -431,13 +442,18 @@ def _role_knowing_company(subject: str, body: str, company: str) -> str:
         if not m:
             continue
         candidate = _clean(_drop_company_prefix(_clean(m.group(1)), company))
-        # "interest in MUFG Bank, Ltd." names the employer again, not a role.
-        # Comparing normalised forms, because the subject and the display name
-        # spell the same firm differently.
-        if candidate and normalize(candidate) != normalize(company):
-            tidied = _tidy_role_text(candidate, company)
-            if tidied:
-                return tidied
+        if not candidate:
+            continue
+        tidied = _tidy_role_text(candidate, company)
+        # "...your interest in Mariner Wealth Advisors" names the employer
+        # again, not a role. role_extract._ok is the project's own test for
+        # that and it is stricter than comparing names: it rejects a
+        # candidate that merely starts with the company, and it requires a
+        # title-ish word, so "Mariner Wealth Advisors", "NRG Energy",
+        # "Kraft Heinz" and a bare "job" are all refused. Those four
+        # overwrote correct job titles before this check existed.
+        if tidied and role_extract._ok(tidied, company):
+            return tidied
 
     if body:
         return _tidy_role_text(
@@ -515,10 +531,16 @@ def _generic(msg: dict, sender: Sender) -> Parsed | Skipped:
         if _ROLE_LIKE_RE.match(company):
             return Skipped("role-as-company", subject[:80])
 
-    # Subject gave nothing usable — fall back to who sent it.
-    if not company:
-        company = _company_from_sender(sender.header)
-    return _validated(company, role, "generic")
+    # Subject gave nothing usable — fall back to who sent it. Also when the
+    # subject *did* give something and it failed the guards: "Thank you for
+    # applying to the 2026 Public Fixed Income Analyst Program" captured
+    # "2026 Public Fixed Income...", which is a requisition-shaped reject,
+    # and the parse ended there even though the sender was
+    # metlifecareers.com the whole time.
+    first = _validated(company, role, "generic:subject") if company else None
+    if first:
+        return first
+    return _validated(_company_from_sender(sender.header), role, "generic:sender")
 
 
 def _validated(company: str, role: str, parser: str) -> Parsed | Skipped:
@@ -531,7 +553,10 @@ def _validated(company: str, role: str, parser: str) -> Parsed | Skipped:
     company = _clean(company or "")
     if not company:
         return Skipped("no-company")
-    if re.match(r"^\d", company):
+    # A long run of leading digits is a requisition id. One or two are part
+    # of a name: "9fin", "1823 Partners", "3M", "53 Capital". Both of the
+    # first two were refused and the applications logged by hand.
+    if re.match(r"^\d{3,}|^\d+$", company):
         return Skipped("company-numeric", company[:40])
     if len(company) < 3:
         return Skipped("company-too-short", company)
@@ -548,65 +573,396 @@ def _validated(company: str, role: str, parser: str) -> Parsed | Skipped:
 # domain gets the message. A parser may return Skipped("no-company") to mean
 # "I recognise this sender and still found nothing", or None to hand the
 # message to the generic rules unchanged.
-REGISTRY: list[tuple[str, tuple[str, ...], object]] = []
+REGISTRY: list[tuple[str, object, object]] = []
 
 
-def parser(name: str, *domains: str):
-    """Registers a per-ATS parser. Order of definition is order of trial."""
+def parser(name: str, *match):
+    """Registers a parser. Order of definition is order of trial.
+
+    `match` is either domain substrings or a single predicate on the Sender,
+    for a parser that applies to a whole class of senders rather than a named
+    list of them.
+    """
 
     def register(fn):
-        REGISTRY.append((name, domains, fn))
+        REGISTRY.append((name, match, fn))
         return fn
 
     return register
 
 
-# "Workday at S&P Global" <spgi@myworkday.com> — the only reliable place the
-# employer appears in a Workday mail, and the reason a Workday-specific rule
-# is worth having at all.
+def _applies(match, sender: Sender) -> bool:
+    if len(match) == 1 and callable(match[0]):
+        return bool(match[0](sender))
+    return any(marker in sender.domain for marker in match)
+
+
+# ------------------------------------------------- the employer, for an ATS
+
+# Any mail from an ATS vendor: the sender's domain is the vendor's, so the
+# employer has to be read from somewhere else in the message. Measured on a
+# frozen pull of this mailbox — 1437 confirmations — where 247 named no
+# employer at all and 158 of those came from Workday alone.
+
+# Generic labels that sit where an employer's name would: a subdomain called
+# "mail", a display name of "Talent Acquisition", a local part of
+# "notifications". None of them is a company, and all of them reached the
+# Company column at least once.
+_NOT_AN_EMPLOYER = {
+    "us", "eu", "uk", "na", "app", "apps", "mail", "email", "msg", "send",
+    "smtp", "hire", "jobs", "job", "careers", "career", "talent", "ats",
+    "apply", "applicant", "trm", "workflow", "notification", "notifications",
+    "noreply", "no-reply", "donotreply", "do-not-reply", "recruiting",
+    "recruitment", "recruiter", "hr", "hris", "system", "sender", "fa", "wl",
+    "enterprise", "humanresources", "human resources", "admin", "candidate",
+    "people", "systemmessage", "automationmanager", "service", "support",
+    "candidates", "candidate", "myhr", "employee", "onboarding", "inbox",
+}
+
+# Platform words glued into a Workday display name. They arrive in every
+# shape the sending employer felt like: "Deutsche_Bank_Workday-do-not-reply",
+# "HR-WorkdaySystem@Truist", "WorkdayNotification cushwake",
+# "noreply-workday ryan", "workday.admin voya". Twenty-odd employers were
+# unreadable for no reason beyond this punctuation.
+_PLATFORM_WORD_RE = re.compile(
+    r"\b(?:workday|myworkday|successfactors|taleo|icims|greenhouse|lever|"
+    r"ultipro|ukg|adp|brassring|brightmove|breezy|rippling|ashby|workable|"
+    r"system|systems|notification|notifications|notify|admin|do|not|reply|"
+    r"donotreply|noreply|no|hr|hris|automated|auto|mailer|mail|team|"
+    r"talent|attraction|acquisition|careers?|recruiting|recruitment|"
+    r"human|resources|people|services?|operations|candidate|experience|"
+    # "Mariner Hiring Team", "Fannie Mae Hiring", "Qualitate Hiring" -- all
+    # three reached the sheet with "Hiring" welded to the company name.
+    r"hiring|opportunities|opportunity|alerts?|inbox|portal|center|centre)\b",
+    re.I,
+)
+
+# "WellsFargoHR" and "BrownBrothersHarriman.DoNotReply" have no spaces for
+# the word rules above to find. Splitting on the case change recovers them,
+# and leaves an all-caps name alone: "MUFGUBHR" must not become "M U F G".
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# Only a long run-together token is split. "CoBank Recruiting" is already
+# spaced and splitting it gave "Co Bank", a company that does not exist; the
+# names that need this are the ones nobody spaced at all, and they are long:
+# "WellsFargoHR", "BrownBrothersHarriman", "DeutscheBankWorkday".
+_CAMEL_MIN = 10
+
+
+def _split_camel(text: str) -> str:
+    return " ".join(
+        _CAMEL_RE.sub(" ", tok) if len(tok) >= _CAMEL_MIN else tok
+        for tok in (text or "").split())
+
+
+def _plausible_employer(name: str, *, stripped: bool) -> str:
+    """Filters a candidate employer name, or returns "".
+
+    `stripped` says whether platform noise actually came off. That is the
+    proof the name belongs to an organisation rather than a person: nobody
+    signs a personal email "Neuberger Berman Workday". Without that proof a
+    two-word capitalised name is ambiguous — "Goldman Sachs" and "Jane Roe"
+    are the same shape — so the person test applies.
+    """
+    name = _clean(re.sub(r"\s{2,}", " ", name or ""))
+    if not name or not (2 < len(name) <= 60):
+        return ""
+    if re.match(r"^\d", name) or "@" in name:
+        return ""
+    # "u1821112.wl.sendgrid.net" -- a vendor's account number, not a firm.
+    # It reached the sheet as the company "U1821112".
+    digits = sum(c.isdigit() for c in name)
+    if digits and digits * 2 >= sum(c.isalnum() for c in name):
+        return ""
+    flat = re.sub(r"[^a-z0-9 ]", "", name.lower()).strip()
+    if flat in _NOT_AN_EMPLOYER or flat.replace(" ", "") in _NOT_AN_EMPLOYER:
+        return ""
+    if _ROLE_LIKE_RE.match(name) or _SENDER_VENDOR_RE.match(name):
+        return ""
+    if not stripped and _looks_like_person(name):
+        return ""
+    # "voya", "cushwake" — a bare lowercase slug reads as a typo on the sheet.
+    return name.title() if name.islower() else name
+
+
+def _employer_from_display(sender: Sender) -> str:
+    """The display name with the ATS's own words taken out of it.
+
+    This is where most unread confirmations hide. "Deutsche Bank" was in the
+    display name of nine of them the whole time, spelled
+    "Deutsche_Bank_Workday-do-not-reply".
+    """
+    # "conning@myworkday.com", "no-reply@us.greenhouse-mail.io": the display
+    # name is just the address repeated. Taking the domain apart for words
+    # produced the companies "Conning Com" and "Us - Io".
+    if "@" in sender.display:
+        return ""
+    text = _split_camel(sender.display)
+    text = re.sub(r"[._|/]+", " ", text)
+    text = _BRACKETED_ORG_RE.sub(" ", text)
+    cleaned = _PLATFORM_WORD_RE.sub(" ", text)
+    out = _plausible_employer(
+        _canonicalise(_clean(re.sub(r"\s{2,}", " ", cleaned))),
+        stripped=_clean(cleaned) != _clean(text))
+    return out
+
+
+def _employer_from_subdomain(sender: Sender) -> str:
+    """The leftmost label of a vendor's domain.
+
+    Breezy gives each employer its own: "Peter Paricka"
+    <no-reply@marex.breezy-mail.com> is Marex, and the display name is the
+    recruiter. So this is tried before the display name, not after.
+    """
+    labels = [l for l in sender.domain.split(".") if l]
+    if len(labels) < 3 or len(labels[0]) < 5:
+        return ""
+    return _plausible_employer(labels[0], stripped=True)
+
+
+# How each vendor writes the employer into the local part. Workday's is the
+# tenant name; iCIMS puts it before a "+"; ADP before ".hr"; UltiPro after
+# "careers-". Everything else is the whole local part.
+# Local parts that identify the vendor's own plumbing rather than an
+# employer. Oracle Recruiting gives each pod a four-letter code and sends as
+# "exvv.fa.sender"; Paylocity appends a random token to "recruiting". Both
+# reached the Company column as "Exvvfasender" and "Recruiting27Koy7Oan1L".
+_OPAQUE_LOCAL_RE = re.compile(
+    r"\.fa\.sender$|^[a-z]{2,6}\.fa\b|"
+    r"[+_-][a-z0-9]{10,}$|"
+    r"^talentmanagementsolution", re.I)
+
+_LOCAL_EMPLOYER_RES = (
+    re.compile(r"^([^+]+)\+"),                      # firstcitizens+email+yoyc
+    re.compile(r"^(.+?)\.(?:hr|hris)$", re.I),      # VRC.hr, SUMITOMO....hr
+    re.compile(r"^careers?[-_.](.+)$", re.I),        # careers-blommer
+    re.compile(r"^(?:donotreply|noreply|no-reply|do-not-reply|hr)[-_.](.+)$", re.I),
+    re.compile(r"^(.+?)[-_.](?:donotreply|noreply|no-reply|hr|hris)$", re.I),
+    re.compile(r"^(.+)$"),
+)
+
+
+def _employer_slug(sender: Sender) -> str:
+    """The vendor's own identifier for the employer, folded to letters.
+
+    A Workday tenant slug is not a name — "websteronline", "pipersandler" —
+    but it is the one thing in the message that always identifies the
+    employer, so it is what the table and the body search are keyed on.
+    """
+    if _OPAQUE_LOCAL_RE.search(sender.local):
+        return ""
+    for rx in _LOCAL_EMPLOYER_RES:
+        m = rx.match(sender.local)
+        if not m:
+            continue
+        slug = re.sub(r"[^a-z0-9]", "", m.group(1).lower())
+        # A matched rule is the answer, right or wrong. Falling through to the
+        # catch-all when the answer was a blocklisted word is what turned
+        # "recruiting+27koy7oan1l" into the company "Recruiting27Koy7Oan1L".
+        if slug in _NOT_AN_EMPLOYER or len(slug) < 2:
+            return ""
+        return slug
+    return ""
+
+
+def _name_for_slug(slug: str, text: str) -> str:
+    """The employer's real spelling, found by matching the slug to the prose.
+
+    "pipersandler" is how Workday writes Piper Sandler, and "Piper Sandler"
+    is how the email body writes it. Folding the body to letters and digits
+    and looking for the slug recovers the spacing and capitalisation —
+    "U.S. Bank" from "usbank", "Walker & Dunlop" from "walkerdunlop" — with
+    no table to maintain.
+
+    Spans inside an email address or a URL are skipped: the sender's own
+    address contains the slug by definition, and matching it there returns
+    the slug back unchanged, which is how this first appeared to work on
+    nine U.S. Bank emails while actually finding nothing.
+    """
+    if len(slug) < 4:
+        return ""
+    kept, where = [], []
+    for i, ch in enumerate(text):
+        if ch.isalnum():
+            kept.append(ch.lower())
+            where.append(i)
+    folded = "".join(kept)
+    at = -1
+    while True:
+        at = folded.find(slug, at + 1)
+        if at < 0:
+            return ""
+        start, end = where[at], where[at + len(slug) - 1] + 1
+        span = text[start:end]
+        line = text[max(0, start - 40):end + 10]
+        if "@" in line and re.search(r"\S+@\S+", line):
+            continue
+        if "//" in line or "www." in line:
+            continue
+        # The point is to recover spacing and capitals. A span identical to
+        # the slug has neither, so it is the slug written out again.
+        if span.lower() == slug and span == span.lower():
+            continue
+        if _plausible_employer(span, stripped=True):
+            return _plausible_employer(span, stripped=True)
+
+
+# Employers whose vendor identifier no rule can reach, because it is an
+# abbreviation rather than a folding of the name. Every entry was read off a
+# real confirmation in the frozen corpus and checked against the sheet or the
+# email's own body; none is a guess. Add to it when the scan reports an
+# "ats:slug" row, which is the parser saying it knows who sent the mail but
+# not how they spell themselves.
+TENANTS = {
+    # Spelled as the sheet spells them, so a confirmation collides with the
+    # row it belongs to instead of opening a second one. Produced by folding
+    # every company on the sheet with company_id.key() and matching the
+    # slugs the parser actually fell back on.
+    "baird": "Baird",
+    "bakertilly": "Baker Tilly",
+    "huntington": "Huntington",
+    "keybank": "KeyBank",
+    "linklogistics": "Link Logistics",
+    "lseg": "LSEG",
+    "rbc": "RBC",
+    "rialtocapital": "Rialto Capital",
+    "vrc": "VRC",
+    # Abbreviations no folding can reach. Each was read off the display name
+    # of a real confirmation in the corpus: "Deutsche_Bank_Workday-do-not-
+    # reply", "WellsFargoHR", "Workday - MMC", "53 Workday Notification",
+    # "WorkdayNotification cushwake", "workday.admin voya".
+    "mufgub": "MUFG",
+    "spgi": "S&P Global",
+    "db": "Deutsche Bank",
+    "wf": "Wells Fargo",
+    "nb": "Neuberger Berman",
+    "bbh": "Brown Brothers Harriman",
+    "mtb": "M&T Bank",
+    "ssctech": "SS&C Technologies",
+    "usbank": "U.S. Bank",
+    "fifththird": "Fifth Third Bank",
+    "cushwake": "Cushman & Wakefield",
+    "mmc": "Marsh McLennan",
+    "godirect": "Voya",
+    "w2o": "Real Chemistry",
+    "pnc": "PNC",
+    "hpe": "HPE",
+}
+
+
+def _employer(msg: dict, sender: Sender, base) -> tuple[str, str]:
+    """The employer behind an ATS message, and which rule found it.
+
+    Ordered by how much each source can be trusted, which is not the same as
+    how convenient it is to read.
+
+    The generic rules' two answers are not equally good and have to be split
+    apart here. A company captured from the subject is the employer writing
+    about themselves in prose, and nothing beats it except the sheet's own
+    spelling. A company guessed from the sender's display name is a guess:
+    "No_Replies_CNO_Workday_Notification CNOinc" survives every guard and
+    becomes the company "No Replies CNO Notification CNOinc", while the same
+    message ends "...application at CNO Financial Group". Letting any
+    generic answer win outright is what kept that row wrong.
+    """
+    subject = msg.get("subject", "")
+    slug = _employer_slug(sender)
+    if slug in TENANTS:
+        return TENANTS[slug], "tenant"
+    if base and base.parser == "generic:subject":
+        return base.company, "generic:subject"
+
+    m = _APPLICATION_AT_RE.search(subject)
+    if m:
+        found = _plausible_employer(_clean(m.group(1)), stripped=True)
+        if found:
+            return found, "application-at"
+
+    # The sender rules come before this module's own display-name handling:
+    # they carry years of corrections, and the camel/platform stripping below
+    # only needs to fire where they found nothing at all.
+    if base:
+        return base.company, "generic:sender"
+
+    found = _employer_from_display(sender)
+    if found:
+        return found, "display"
+
+    for rx in [*_SUBJECT_COMPANY_RES, _LEADING_COMPANY_RE]:
+        m = rx.search(subject)
+        if m:
+            found = _plausible_employer(_clean(m.group(1)), stripped=True)
+            if found:
+                return found, "subject"
+
+    # Last of the header sources, because a vendor's subdomain is as often an
+    # opaque code as a name: "mgl.avature.net" is Macquarie and
+    # "candidates.workablemail.com" is nobody. Those two overwrote "Macquarie"
+    # and "Insight Investment" when this was tried first.
+    found = _employer_from_subdomain(sender)
+    if found:
+        return found, "subdomain"
+
+    if slug:
+        found = _name_for_slug(slug, subject + "\n" + (msg.get("body") or ""))
+        if found:
+            return found, "body"
+        # Last resort, and recorded as such: the tenant identifies the
+        # employer even when nothing spells them out, and a row named
+        # "websteronline" is worth more than a missed application. The parser
+        # name says "ats:slug" so the scan can flag it for a proper name.
+        pretty = _plausible_employer(slug, stripped=True)
+        if pretty:
+            return pretty, "slug"
+    return "", ""
+
+
+# "Workday at S&P Global" <spgi@myworkday.com> — the clearest display name
+# Workday produces, and the reason to look there first.
 _WORKDAY_AT_RE = re.compile(r"^workday\s+at\s+(.+?)\s*$", re.I)
 # "...your CLO Portfolio Analyst ... application at CNO Financial Group".
 _APPLICATION_AT_RE = re.compile(r"\bapplication at\s+(.+?)\s*$", re.I)
+# Greenhouse's form: "Precision Medicine Group: Thank you for your
+# application", "Application follow-up: Carvana", "CohnReznick Application
+# Received", "Edward Jones Opportunity".
+_LEADING_COMPANY_RE = re.compile(
+    r"^(.+?)\s*:\s*(?:thank|thanks|we|your|application)|"
+    r"^application follow-up\s*:\s*(.+?)\s*$|"
+    r"^(.+?)\s+(?:application received|opportunity)\s*$", re.I)
 
 
-@parser("workday", "myworkday.com", "myworkdayjobs.com", "workday.com")
-def _workday(msg: dict, sender: Sender):
-    """Workday: the employer chooses the subject, so nothing is conventional.
+@parser("ats", lambda s: s.is_vendor)
+def _ats(msg: dict, sender: Sender):
+    """A message from an ATS vendor, whoever the employer turns out to be.
 
-    It was the worst source in this mailbox — 56% of its confirmations went
-    unread — and the reason is structural rather than a missing pattern. A
-    Workday subject is whatever the employer typed, and the role is usually in
-    the body. What a generic rule cannot do, and this can, is establish the
-    employer first: the display name is "Workday at <employer>", or the
-    subject ends "...application at <employer>". Once the employer is known,
-    "your interest in X" can only be the role, which is a reading the generic
-    path has to refuse.
+    One parser rather than one per vendor, because the places an employer can
+    hide are the same everywhere — the subdomain, the local part, the display
+    name, the subject — and only the spelling of each differs. Measuring told
+    me that: of 31 vendor domains that sent something unreadable, 28 put the
+    employer in one of those four places.
 
-    Returns None when nothing here names an employer, so the message still
-    reaches the generic rules rather than being refused outright.
+    Knowing the employer is also what makes the role readable. The generic
+    rules must refuse "your interest in X", because X is a company as often
+    as a role; here the company is already settled, so X can only be the
+    role. That is why Workday missed 56% of its mail.
+
+    The generic rules run first and keep the company whenever they can name
+    one. They were right about 105 messages this parser would otherwise have
+    overruled — "Macquarie" became "Mgl", "Sumitomo Mitsui Banking
+    Corporation" became "SMBC", "ProShares" became "Us - Io" — because a
+    vendor identifier is a reliable *identity* and a poor *name*, and the
+    sheet is keyed on the name. So this rescues what the generic rules
+    refuse; it never overrides what they accept.
+
+    The role is re-read either way, because that part only needs the employer
+    to be known, however it became known.
     """
-    subject = msg.get("subject", "")
-
-    company = ""
-    m = _WORKDAY_AT_RE.match(sender.display)
-    if m:
-        company = _clean(m.group(1))
-    if not company:
-        m = _APPLICATION_AT_RE.search(subject)
-        if m:
-            company = _clean(m.group(1))
-    if not company:
-        # "MUFGUBHR", "HRIS Flagstar", "No_Replies_CNO_Workday_Notification":
-        # the display name with the platform noise taken off. This is the
-        # shared rule, not a Workday one, but Workday is where most of those
-        # malformed sender names come from.
-        company = _company_from_sender(sender.header)
+    base = _generic(msg, sender)
+    company, how = _employer(msg, sender, base)
     if not company:
         return None
-
-    return _validated(
-        company, _role_knowing_company(subject, msg.get("body", ""), company),
-        "workday")
+    role = _role_knowing_company(msg.get("subject", ""),
+                                 msg.get("body", ""), company)
+    return _validated(company, role, f"ats:{how}")
 
 
 def parse(msg: dict) -> Parsed | Skipped:
@@ -618,8 +974,8 @@ def parse(msg: dict) -> Parsed | Skipped:
         return Skipped("not-an-application", subject[:80])
 
     sender = _sender(msg.get("from", ""))
-    for name, domains, fn in REGISTRY:
-        if any(marker in sender.domain for marker in domains):
+    for name, match, fn in REGISTRY:
+        if _applies(match, sender):
             out = fn(msg, sender)
             if out is not None:
                 return out

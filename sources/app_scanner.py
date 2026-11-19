@@ -186,6 +186,12 @@ def scan(days_back: int = 730, dry_run: bool = False,
             # This row's date is the day it was *declined*, not applied; the
             # application itself left no mail behind to date it by.
             "rejected": rejected,
+            # The parser knew who sent the mail but not how they spell
+            # themselves, so the company is the ATS's own identifier —
+            # "Websteronline", "Walkerdunlop". The row is still worth having;
+            # it just needs a name, and saying so in Notes is what gets it
+            # one. core.confirmation_parser.TENANTS is where the fix goes.
+            "needs_name": read.parser == "ats:slug",
         }
 
     print(f"\n{len(new_rows)} application(s) not yet in the sheet:")
@@ -234,7 +240,10 @@ def scan(days_back: int = 730, dry_run: bool = False,
             "Status": status_mod.display(
                 status_mod.REJECTED if v.get("rejected") else status_mod.APPLIED),
             "Result": "Rejected" if v.get("rejected") else "",
-            "Notes": "Auto-added from Gmail confirmation email",
+            "Notes": ("Auto-added from Gmail confirmation email — company "
+                      "name is the ATS's own identifier, please correct it"
+                      if v.get("needs_name") else
+                      "Auto-added from Gmail confirmation email"),
         }
         values.append([row.get(h, "") for h in HEADERS])
 

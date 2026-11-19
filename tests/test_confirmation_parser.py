@@ -187,9 +187,9 @@ class TestCompanyFromSender(unittest.TestCase):
 
 
 class TestWorkday(unittest.TestCase):
-    """Workday was the worst source in the mailbox: 56% of its confirmations
-    went unread, because it leaves the subject to each employer and writes the
-    role in the body."""
+    """Workday was the worst source in the mailbox — 158 of the 247 unreadable
+    confirmations came from it alone — because it leaves the subject to each
+    employer and writes the role in the body."""
 
     def test_workday_at_company_display_name(self):
         # The generic rules refuse "interest in X" — X is a role as often as a
@@ -200,7 +200,11 @@ class TestWorkday(unittest.TestCase):
             '"Workday at S&P Global" <spgi@myworkday.com>'))
         self.assertEqual(out.company, "S&P Global")
         self.assertIn("Rating Analyst", out.role)
-        self.assertEqual(out.parser, "workday")
+        # Reached through the tenant table rather than the display name,
+        # because the sheet's own spelling of a company beats every other
+        # source. Either route is correct; what matters is that a sender-aware
+        # rule handled it at all.
+        self.assertTrue(out.parser.startswith("ats:"), out.parser)
 
     def test_status_change_subject(self):
         out = cp.parse(msg(
@@ -227,6 +231,140 @@ class TestWorkday(unittest.TestCase):
         out = cp.parse(msg("Your application to Trading Analyst at Jane Street",
                            "Workday <noreply@myworkday.com>"))
         self.assertEqual(out.company, "Jane Street")
+
+
+class TestVendorSenders(unittest.TestCase):
+    """What the frozen corpus taught, pinned.
+
+    Each of these was a real confirmation that named its employer plainly
+    somewhere in the message and still produced no row, or produced a wrong
+    one. Together they were 226 of the 1437 emails in the mailbox.
+    """
+
+    def test_workday_tenant_is_the_employer(self):
+        # The local part of a myworkday.com address is the employer's Workday
+        # tenant. It was the only thing identifying 158 unread confirmations,
+        # and the old rules threw it away twice over: the display name was
+        # rejected for containing "@", and the domain for being a vendor's.
+        out = cp.parse(msg("Thank You for Your Application!",
+                           "pipersandler@myworkday.com <pipersandler@myworkday.com>",
+                           "Thank you for applying to Piper Sandler."))
+        self.assertEqual(out.company, "Piper Sandler")
+
+    def test_display_name_that_is_only_the_address_says_nothing(self):
+        # Taking "conning@myworkday.com" apart for words gave the company
+        # "Conning Com", and "no-reply@us.greenhouse-mail.io" gave "Us - Io"
+        # on 28 emails.
+        out = cp.parse(msg("Thank you for your application",
+                           "conning@myworkday.com <conning@myworkday.com>",
+                           "Thank you for applying to Conning."))
+        self.assertEqual(out.company, "Conning")
+
+    def test_hr_suffix_comes_off_the_display_name(self):
+        # The pattern read `hris?`, which matches "hri" and "hris" but never
+        # "HR". Ten JLL confirmations were logged under the company "JLL HR".
+        out = cp.parse(msg("Thank You for Your Application!",
+                           "JLL HR <jll@myworkday.com>"))
+        self.assertEqual(out.company, "JLL")
+
+    def test_underscores_and_glued_words(self):
+        # "Deutsche_Bank_Workday-do-not-reply" named Deutsche Bank in its
+        # display name through nine unread confirmations.
+        out = cp.parse(msg("Thank You for Your Application!",
+                           "Deutsche_Bank_Workday-do-not-reply <db@myworkday.com>"))
+        self.assertEqual(out.company, "Deutsche Bank")
+
+    def test_run_together_name_is_split_but_a_spaced_one_is_not(self):
+        # "WellsFargoHR" has to be split to be read; "CoBank Recruiting" must
+        # not be, and splitting it produced the company "Co Bank".
+        self.assertEqual(cp._split_camel("WellsFargoHR"), "Wells Fargo HR")
+        self.assertEqual(cp._split_camel("CoBank Recruiting"), "CoBank Recruiting")
+        self.assertEqual(cp._split_camel("MUFGUBHR"), "MUFGUBHR")
+
+    def test_explicit_subject_beats_a_noisy_display_name(self):
+        # "No_Replies_CNO_Workday_Notification CNOinc" survives every guard
+        # and becomes a 34-character company. The same message ends
+        # "...application at CNO Financial Group".
+        out = cp.parse(msg(
+            "Status change for your CLO Portfolio Analyst application "
+            "at CNO Financial Group",
+            "No_Replies_CNO_Workday_Notification CNOinc <cnoinc@myworkday.com>"))
+        self.assertEqual(out.company, "CNO Financial Group")
+
+    def test_vendor_account_number_is_not_a_company(self):
+        # "u1821112.wl.sendgrid.net" reached the sheet as the company
+        # "U1821112".
+        self.assertEqual(
+            cp._employer_from_subdomain(
+                cp._sender("X <noreply@u1821112.wl.sendgrid.net>")), "")
+
+    def test_opaque_vendor_plumbing_yields_no_employer(self):
+        # Oracle Recruiting gives each pod a four-letter code and sends as
+        # "exvv.fa.sender"; Paylocity appends a random token to "recruiting".
+        # Both became companies: "Exvvfasender", "Recruiting27Koy7Oan1L". A
+        # miss is better than a row nobody can act on.
+        for local in ("exvv.fa.sender", "recruiting+27koy7oan1l"):
+            self.assertEqual(
+                cp._employer_slug(cp._sender(f"X <{local}@mail.paylocity.com>")),
+                "", local)
+
+    def test_oracle_recruiting_names_nobody(self):
+        # End to end: the display name is the address, the local part is a
+        # pod code, the domain is Oracle's. Six confirmations, no employer
+        # anywhere in the headers.
+        out = cp.parse(msg(
+            "Job Application Update",
+            "exvv.fa.sender@workflow.mail.us2.cloud.oracle.com "
+            "<exvv.fa.sender@workflow.mail.us2.cloud.oracle.com>"))
+        self.assertFalse(out)
+        self.assertEqual(out.reason, "no-company")
+
+    def test_a_leading_digit_can_be_part_of_a_name(self):
+        # "9fin" and "1823 Partners" are firms. Refusing anything starting
+        # with a digit meant both applications were logged by hand.
+        out = cp.parse(msg("Confirmation of your application to 9fin",
+                           "9fin <careers@9fin.com>"))
+        self.assertEqual(out.company, "9fin")
+
+    def test_a_rejected_subject_company_falls_back_to_the_sender(self):
+        # "Thank you for applying to the 2026 Public Fixed Income Analyst
+        # Program" captures a requisition-shaped company, and the parse ended
+        # there — even though the sender was metlifecareers.com all along.
+        out = cp.parse(msg(
+            "Thank you for applying to the 2026 Public Fixed Income Analyst Program",
+            "MetLife Careers <noreply@metlifecareers.com>"))
+        self.assertTrue(out, out)
+        self.assertIn("metlife", out.company.lower())
+
+    def test_the_role_is_never_the_employer(self):
+        # Once the employer is known, "your interest in X" is read as the
+        # role. On four messages X was the employer written out in full, and
+        # it overwrote a correct job title: "Analyst, Structured Notes"
+        # became "Mariner Wealth Advisors".
+        out = cp.parse(msg(
+            "Thank you for your interest in Mariner Wealth Advisors",
+            "Mariner Hiring Team <no-reply@ashbyhq.com>",
+            "Thank you for applying for the Analyst, Structured Notes role."))
+        self.assertIn("Analyst", out.role)
+        self.assertNotIn("Mariner", out.role)
+
+    def test_job_alert_feed_named_only_in_the_display_name(self):
+        # "Group One Trading - Jobs Alerts". The subject of a digest is
+        # whatever that week's marketing line was, so the subject rules
+        # cannot see it.
+        out = cp.parse(msg(
+            "Ever felt like there's a secret handshake to landing jobs",
+            "Group One Trading - Jobs Alerts <x@u1821112.wl.sendgrid.net>"))
+        self.assertFalse(out)
+        self.assertEqual(out.reason, "not-an-application")
+
+    def test_tenant_table_entries_are_reachable(self):
+        """A table entry keyed on something _employer_slug never produces is
+        dead weight that reads as coverage."""
+        for slug in cp.TENANTS:
+            self.assertEqual(
+                slug, cp._employer_slug(cp._sender(f"X <{slug}@myworkday.com>")),
+                f"TENANTS key {slug!r} cannot be produced by _employer_slug")
 
 
 class TestCorpus(unittest.TestCase):

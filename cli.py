@@ -127,6 +127,13 @@ def cmd_scan_job_links(args):
     link_finder.scan(days_back=args.days, dry_run=args.dry_run, since_date=_since(args))
 
 
+def cmd_parser_accuracy(args):
+    from sources import confirmation_corpus
+    if args.refresh:
+        confirmation_corpus.pull(days_back=args.days)
+    confirmation_corpus.report(show=args.show)
+
+
 def cmd_scan_new_applications(args):
     app_scanner.scan(days_back=args.days, dry_run=args.dry_run)
 
@@ -586,6 +593,18 @@ def main():
     p.add_argument("--yes", action="store_true",
                    help="Skip the confirmation prompt")
     p.set_defaults(func=cmd_log_application)
+
+    p = sub.add_parser("parser-accuracy",
+                       help="Measure the confirmation-email parser against a "
+                            "frozen pull of the mailbox, offline")
+    p.add_argument("--refresh", action="store_true",
+                   help="Re-read the mailbox first (~15 minutes; one request "
+                        "per message body)")
+    p.add_argument("--days", type=int, default=730,
+                   help="How far back to read when refreshing (default 730)")
+    p.add_argument("--show", type=int, default=12,
+                   help="How many examples to list per section (default 12)")
+    p.set_defaults(func=cmd_parser_accuracy)
 
     p = sub.add_parser("age-stale", help="Move applications that went silent past N days from 'applied' to 'no response'")
     p.add_argument("--days", type=int, default=stale.DEFAULT_DAYS,

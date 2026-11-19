@@ -31,7 +31,7 @@ LAYOUT = {
     "store": ["google_auth", "gmail_client", "sheets", "calendar_client", "notify"],
     # sources: reading the outside world into domain objects
     "sources": ["app_scanner", "rejection_scanner", "reply_scanner", "link_finder",
-                "apply_capture", "muse", "job_finder", "interview_signals",
+                "apply_capture", "confirmation_corpus", "muse", "job_finder", "interview_signals",
                 "interview_calendar", "interview_model", "rejection_model"],
     # people: who to contact and at what address
     "people": ["people_finder", "edgar_finder", "team_pages", "people_search",

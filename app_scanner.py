@@ -14,6 +14,7 @@ import sheets
 import status as status_mod
 from config import HEADERS
 from company_match import normalize
+from date_utils import parse_date
 from link_finder import CONFIRMATION_PHRASES
 
 # Only patterns where the captured group is unambiguously a COMPANY.
@@ -339,6 +340,62 @@ def _parse(msg: dict) -> tuple[str, str] | None:
     return company, role
 
 
+# Mail that matches the confirmation phrases without recording any
+# application. Phillips 66's "Welcome! Thank you for Creating an Account"
+# closes with "thank you for your interest in Phillips 66" and went onto the
+# sheet as an application under the ATS's own sender name, "ATS_P66"; a talent
+# community signup does the same. Matched on the subject only: real ATS
+# confirmations often invite you to create an account further down the body.
+_NOT_AN_APPLICATION_RE = re.compile(
+    r"creat(?:e|ed|ing)\s+(?:an?\s+|your\s+)?(?:account|profile)|"
+    r"account\s+(?:has\s+been\s+|was\s+)?created|"
+    r"talent\s+(?:community|network|pool)", re.I)
+
+
+def _not_an_application(msg: dict) -> bool:
+    return bool(_NOT_AN_APPLICATION_RE.search(msg.get("subject", "")))
+
+
+# Applying to the same role twice, months apart, is two applications. Kroll
+# re-posted "Analyst, Financial Instruments & Technology" in November under a
+# new requisition; the July row — rejected in September — matched the key and
+# swallowed the confirmation, so the second application was never logged. The
+# gap has to be wider than dedupe's own window, so a confirmation that lands a
+# few days after the row it belongs to still collapses into it.
+REAPPLY_GAP_DAYS = 60
+
+
+def _reapplied(msg: dict, applied_dates: list) -> bool:
+    """Is this confirmation a fresh application to a role already on the sheet?"""
+    if not applied_dates:
+        return False
+    try:
+        sent = parsedate_to_datetime(msg["date"]).date()
+    except (KeyError, TypeError, ValueError):
+        return False
+    return all((sent - d).days > REAPPLY_GAP_DAYS for d in applied_dates)
+
+
+def _tracked(company: str, role: str, existing: list[dict]) -> bool:
+    """Is this company/role already on the sheet, allowing for a longer title?
+
+    Uses dedupe's title comparison rather than an exact match: the sheet said
+    "Debt Analyst" and JLL's mail said "Debt Analyst, Hotels - Capital
+    Markets", which is the same application by any reading.
+    """
+    from company_match import _core as core
+    from dedupe import _role_match
+
+    target = core(company).replace(" ", "") or normalize(company)
+    for r in existing:
+        name = r.get("Company", "")
+        if (core(name).replace(" ", "") or normalize(name)) != target:
+            continue
+        if _role_match(role, r.get("Position", "")):
+            return True
+    return False
+
+
 def scan(days_back: int = 730, dry_run: bool = False,
          max_results: int = 4000) -> None:
     phrase_query = " OR ".join(f'"{p}"' for p in CONFIRMATION_PHRASES)
@@ -365,7 +422,24 @@ def scan(days_back: int = 730, dry_run: bool = False,
         return (_company_core(company).replace(" ", "") or normalize(company),
                 normalize(role))
 
-    existing_keys = {_key(r["Company"], r["Position"]) for r in existing}
+    # A row whose company you corrected keeps answering to the name it was
+    # corrected away from: the ATS goes on sending under "hyperiongrp" long
+    # after the row says "Howden", and without the alias the confirmation
+    # matched nothing and came back as a new row.
+    import company_aliases
+
+    existing_keys = set()
+    # Kept per key so a confirmation months newer than the row it matches can
+    # be told apart from one that simply arrived late — see _reapplied.
+    existing_dates: dict[tuple, list] = {}
+    for r in existing:
+        applied = parse_date(r.get("Applied Draes", ""))
+        for k in (_key(r["Company"], r["Position"]),
+                  *(_key(alias, r["Position"])
+                    for alias in company_aliases.aliases_of(r["Company"]))):
+            existing_keys.add(k)
+            if applied:
+                existing_dates.setdefault(k, []).append(applied)
     # Compared on the distinctive core, so "bp Global" collides with the "bp"
     # row you already have, and "Fitch Group" with "Fitch" — the sender's
     # display name spells companies differently from the sheet.
@@ -377,25 +451,50 @@ def scan(days_back: int = 730, dry_run: bool = False,
     for r in existing:
         if not r["Company"].strip():
             continue
-        for c in (normalize(r["Company"]), _core(r["Company"])):
-            if c:
-                existing_companies.add(c)
-                existing_companies.add(c.replace(" ", ""))
+        for name in (r["Company"], *company_aliases.aliases_of(r["Company"])):
+            for c in (normalize(name), _core(name)):
+                if c:
+                    existing_companies.add(c)
+                    existing_companies.add(c.replace(" ", ""))
+
+    # Imported here, not at module scope: rejection_scanner imports this
+    # module's siblings and pulling it in at the top makes the cycle real.
+    import rejection_scanner as _rejection_scanner
 
     new_rows = {}
     unparsed = []
+    rejections = []
+    non_applications = []
     for m in msgs:
+        if _not_an_application(m):
+            non_applications.append(m)
+            continue
         parsed = _parse(m)
         if not parsed:
             unparsed.append(m)
             continue
         company, role = parsed
+        # The confirmation query matches on phrases like "thank you for your
+        # interest", which plenty of rejections close with: JLL's
+        # "Application Update" declined the Debt Analyst role and was logged
+        # as a brand-new application for it, at the rejection's own date.
+        # A rejection for a role already on the sheet is therefore skipped —
+        # the rejection scan closes that row, this one would only duplicate
+        # it. A rejection for a role that is *not* on the sheet still counts:
+        # it is the only trace of an application nothing else recorded, so it
+        # goes in already closed rather than as a fresh "applied".
+        rejected = bool(_rejection_scanner._is_real_rejection(m))
+        if rejected and _tracked(company, role, existing):
+            rejections.append(m)
+            continue
         # Built with _key(), so it must be compared with _key(). Keying the
         # incoming side on normalize() instead meant "MasterCard People
         # Services" never collided with the "MasterCard" row already in the
         # sheet, and the same application was logged twice.
         key = _key(company, role)
-        if key in existing_keys or key in new_rows:
+        if key in new_rows:
+            continue
+        if key in existing_keys and not _reapplied(m, existing_dates.get(key, [])):
             continue
         # With no role parsed there's nothing to distinguish this from an
         # application already tracked at the same company, so skip it rather
@@ -417,12 +516,27 @@ def scan(days_back: int = 730, dry_run: bool = False,
             "date": f"{date.month}/{date.day}/{date.year}",
             "subject": m["subject"],
             "known_company": normalize(company) in existing_companies,
+            # This row's date is the day it was *declined*, not applied; the
+            # application itself left no mail behind to date it by.
+            "rejected": rejected,
         }
 
     print(f"\n{len(new_rows)} application(s) not yet in the sheet:")
     for v in sorted(new_rows.values(), key=lambda x: x["date"]):
         flag = "" if v["known_company"] else "  [new company]"
         print(f"  {v['date']:10s} | {v['company'][:35]:35s} | {v['role'][:40]}{flag}")
+
+    if non_applications:
+        print(f"\n{len(non_applications)} email(s) skipped — an account or "
+              f"talent-community signup, not an application:")
+        for m in non_applications[:10]:
+            print(f"  \"{m['subject'][:80]}\"")
+
+    if rejections:
+        print(f"\n{len(rejections)} rejection(s) skipped — the rejection scan "
+              f"closes those rows, this one only opens them:")
+        for m in rejections[:10]:
+            print(f"  \"{m['subject'][:80]}\"")
 
     if unparsed:
         print(f"\n{len(unparsed)} email(s) couldn't be parsed into company/role (skipped):")
@@ -444,7 +558,9 @@ def scan(days_back: int = 730, dry_run: bool = False,
             "Company": v["company"],
             "Position": v["role"],
             "Applied Draes": v["date"],
-            "Status": status_mod.display(status_mod.APPLIED),
+            "Status": status_mod.display(
+                status_mod.REJECTED if v.get("rejected") else status_mod.APPLIED),
+            "Result": "Rejected" if v.get("rejected") else "",
             "Notes": "Auto-added from Gmail confirmation email",
         }
         values.append([row.get(h, "") for h in HEADERS])

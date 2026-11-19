@@ -149,13 +149,26 @@ def _sign_off() -> str:
 
 
 def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
-    """The full email, in the six-block shape Ian actually sends.
+    """The full email, in the four-block shape Ian actually sends.
 
-    The intro is close to verbatim from the corpus. Two things it must never
-    do, both measured: mention having applied (2% of 147 emails say "applied",
-    0% say "application"), and give a reason for writing other than wanting to
-    learn about the person's work. The earlier version led with the
-    application, which is the opposite of how every one of these is written.
+    Measured against past_outreach.txt (50 emails) and the most recent sends
+    (UHY 11/12/2026, Bailard 11/5/2026). The only reference to his own
+    employer is the half-clause in the intro -- "AXA" appears 52 times across
+    50 emails, i.e. about once each, all of them there -- and the paragraph
+    after it is about why he is drawn to the field and what caught his
+    attention in the reader's work. An earlier version of this function put a
+    paragraph of AXA XL property-pricing detail in the middle of every email
+    and closed it with "what I cannot see from here is"; neither appears
+    anywhere in the corpus.
+
+    So `hook` is the pivot paragraph: what drew him to this field, what
+    specifically caught his attention in the reader's work, and what he would
+    like to hear about. `contact["focus"]`, if given, is the thing the intro
+    says he came across.
+
+    Two things it must never do, both measured: mention having applied (2% of
+    147 emails say "applied", 0% say "application"), and give a reason for
+    writing other than wanting to learn about the person's work.
     """
     first = (contact["name"].split() or ["there"])[0]
     company = display_company(row.get("Company", ""))
@@ -166,17 +179,26 @@ def compose(contact: dict, row: dict, hook: str, ask: str = "") -> str:
     # sentence, the way "Capital Markets team" reads in your own emails.
     area_phrase = area if area.isupper() else area[0].upper() + area[1:]
 
-    # "I came across" moves out of the intro so the hook can use it, which is
-    # where it belongs: 51% of the real hook paragraphs are about the reader's
-    # work, and only 2% mention any of Ian's own past employers.
-    intro = sender_profile.intro_sentence(area_phrase, company)
+    # What the intro says he came across. A caller that researched the person
+    # passes `focus` ("your work building out Matter's insurance product");
+    # the bulk generators only know a title, which still beats the generic
+    # fallback inside intro_sentence.
+    focus = contact.get("focus", "").strip()
+    if not focus and contact.get("title", "").strip():
+        focus = f"your background as {contact['title'].strip()} at {company}"
+    intro = sender_profile.intro_sentence(area_phrase, company, focus)
+    # His own closing ask, verbatim in shape from the last two sends: the
+    # call, the resume "for some additional context", and the offer to work
+    # around their schedule. The resume line lives here because that is where
+    # he puts it, so whatever creates the draft has to attach the file.
     request = ask or (
-        "If you have 15\u201320 minutes for a quick call in the coming weeks, "
-        "I'd really appreciate the opportunity to hear about your experience "
-        "and expertise. I have attached my resume for your reference."
+        "If you have 15–20 minutes sometime in the next few weeks, I "
+        "would really appreciate the opportunity to connect over a phone call "
+        "or in person and hear more about your experience and expertise. I've "
+        "attached my resume for some additional context, and I'm happy to work "
+        "around your schedule."
     )
-    thanks = ("Thank you very much for your time, and I hope we have a chance "
-              "to connect.")
+    thanks = "Thank you for your time and consideration."
 
     return (f"Dear {first},\n\n{intro}\n\n{hook.strip()}\n\n{request}\n\n"
             f"{thanks}\n\n{_sign_off()}\n")

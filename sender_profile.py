@@ -84,15 +84,28 @@ def intro_opening() -> str:
             f"degree in {p['degree']} and currently work at {p['employer']}.")
 
 
-def intro_sentence(area: str, company: str) -> str:
-    """The opening paragraph, built from the profile rather than hard-coded."""
+def intro_sentence(area: str, company: str, focus: str = "") -> str:
+    """The opening paragraph, built from the profile rather than hard-coded.
+
+    The shape is measured from the most recent sends (UHY 11/12/2026,
+    Bailard 11/5/2026) rather than invented: a one-clause introduction, then
+    the specific thing of the reader's he came across, then the area he wants
+    to hear about. `focus` is that specific thing -- "your background and
+    leadership of UHY's Complex Financial Instruments practice" -- and falls
+    back to the generic "your work at X" that 11 of the 50 corpus emails use.
+
+    "recently" becomes "recent" so the clause reads as the noun phrase he
+    actually writes: "a recent NYU graduate in Mathematics and Economics".
+    """
     p = load()
+    graduated = str(p["graduated"])
+    adj = graduated[:-2] if graduated.endswith("ly") else graduated
+    came_across = focus.strip() or f"your work at {company}"
     return (
-        f"I hope you're doing well. My name is {p['name']}. I "
-        f"{p['graduated']} graduated from {p['school_short']} with a degree in "
-        f"{p['degree']} and currently work at {p['employer']}. I'm reaching "
-        f"out because I'm very interested in learning more about {area} at "
-        f"{company}."
+        f"I hope you're doing well. My name is {p['name']}, a {adj} "
+        f"{p['school_short']} graduate in {p['degree']}, currently working at "
+        f"{p['employer']}. I came across {came_across} and would love to learn "
+        f"more about your work and experience in {area}."
     )
 
 

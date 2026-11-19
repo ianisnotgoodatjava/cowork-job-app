@@ -37,7 +37,14 @@ _TRUNCATED_SUFFIX_RE = re.compile(r",\s*[A-Za-z]{1,3}\.?\s*$")
 
 
 def _company_key(row: dict) -> str:
+    import company_aliases
+
     name = _TRUNCATED_SUFFIX_RE.sub("", (row.get("Company") or "").strip())
+    # A row the scanner re-imported under the ATS's own spelling is the same
+    # application as the one whose name you corrected: "hyperiongrp" and
+    # "Howden" were two rows for one job, and keyed on the name alone they
+    # could never be seen as a pair.
+    name = company_aliases.load().get(normalize(name), name)
     return _core(name).replace(" ", "") or normalize(name).replace(" ", "")
 
 

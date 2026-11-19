@@ -94,9 +94,14 @@ DECISIVE_FIELDS = ()
 #
 # Three of these cannot be baked in. A start date written today is wrong
 # tomorrow; the salary depends on where the job is; and the disability
-# question is Yes only when its own list of conditions names a listed condition, which
-# differs by employer. All three are evaluated against the live page.
-RULES_JS = """
+# question is Yes only when its own list of conditions names one of yours,
+# which differs by employer. All three are evaluated against the live page.
+#
+# The answers themselves -- salary, self-identification, the conditions --
+# are the applicant's, so they come from the gitignored resume_bank.json
+# rather than this file. A question with no answer in the profile gets no
+# rule and is left for you.
+RULES_HEAD_JS = """
  var _d=new Date(Date.now()+14*864e5);
  while(_d.getDay()!==1)_d.setDate(_d.getDate()+1);
  var START=_d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
@@ -104,23 +109,47 @@ RULES_JS = """
  var MAJOR=['new york','new york city','nyc','san francisco','boston','chicago',
             'los angeles','washington, d.c.','washington dc','seattle','london',
             'hong kong','singapore','dublin','toronto','jersey city','stamford'];
- var SALARY=MAJOR.some(function(c){return PAGE.indexOf(c)>-1;})?'REDACTED':'REDACTED';
- var DIS=false;
- var RULES=[
-  [/sponsor|visa/,                      'No'],
-  [/authoriz|authoris|legally/,         'Yes'],
-  [/relocat|willing to work|willing to commute|able to commute|willing to be based|willing to travel/, 'Yes'],
-  [/referr|refer by|referred by/,       'No'],
-  [/start date|how soon|availab|notice period/, START],
-  [/salary|compensation|expected pay|base pay/, SALARY],
-  [/disabilit/,                         DIS?'Yes':'No'],
-  [/veteran/,                           'REDACTED'],
-  [/hispanic|latino/,                   'REDACTED'],
-  [/gender/,                            'REDACTED'],
-  [/sexual orientation/,                'REDACTED'],
-  [/citizenship/,                       'REDACTED'],
- ];
 """
+
+
+def rules_js(profile: dict | None = None) -> str:
+    """The RULES block, with this applicant's answers filled in."""
+    if profile is None:
+        import resume_bank
+        profile = resume_bank.profile()
+    js = RULES_HEAD_JS
+    rules = [
+        ("/sponsor|visa/", "'No'"),
+        ("/authoriz|authoris|legally/", "'Yes'"),
+        ("/relocat|willing to work|willing to commute|able to commute|"
+         "willing to be based|willing to travel/", "'Yes'"),
+        ("/referr|refer by|referred by/", "'No'"),
+        ("/start date|how soon|availab|notice period/", "START"),
+    ]
+    major, other = profile.get("salary_major_city"), profile.get("salary_other")
+    if major and other:
+        js += (" var SALARY=MAJOR.some(function(c){return PAGE.indexOf(c)>-1;})"
+               f"?{json.dumps(str(major))}:{json.dumps(str(other))};\n")
+        rules.append(("/salary|compensation|expected pay|base pay/", "SALARY"))
+    conditions = profile.get("disability_conditions")
+    if conditions is not None:
+        js += (f" var DIS={json.dumps([c.lower() for c in conditions])}"
+               ".some(function(c){return PAGE.indexOf(c)>-1;});\n")
+        rules.append(("/disabilit/", "DIS?'Yes':'No'"))
+    citizenship = profile.get("citizenship")
+    if isinstance(citizenship, list):
+        citizenship = citizenship[0] if citizenship else ""
+    for pattern, key, value in (
+            ("/veteran/", "veteran_status", None),
+            ("/hispanic|latino/", "hispanic_ethnicity", None),
+            ("/gender/", "gender", None),
+            ("/sexual orientation/", "sexual_orientation", None),
+            ("/citizenship/", "citizenship", citizenship)):
+        value = value if value is not None else profile.get(key)
+        if value and str(value).strip():
+            rules.append((pattern, json.dumps(str(value).strip())))
+    js += " var RULES=[\n" + "".join(f"  [{p}, {v}],\n" for p, v in rules) + " ];\n"
+    return js
 
 
 def _js_profile() -> dict:
@@ -271,7 +300,7 @@ def build() -> str:
 })();
 """ % {"profile": json.dumps(profile),
        "matchers": json.dumps(matchers),
-       "rules": RULES_JS,
+       "rules": rules_js(),
        "never": json.dumps(list(apply_autofill.NEVER_FILL) + list(EEO_FIELDS)
                                 + list(CONSENT_FIELDS)
                                 + list(DECISIVE_FIELDS))}

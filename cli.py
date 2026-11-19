@@ -366,13 +366,24 @@ def cmd_who_replies(args):
 
 
 def cmd_corrections(args):
+    import company_aliases
     import corrections
     if args.row:
         row = sheets.get_row(args.row)
         if not args.column or not args.value:
             raise SystemExit("pass --column and --value to lock a row")
-        corrections.record(row["Company"], row["Position"], args.column,
+        # Locks are keyed by (company, position), so correcting one of those
+        # two has to be keyed by the identity the row will have *after* the
+        # write. Keyed by the old name, a Company lock stopped matching its
+        # own row the instant it was applied.
+        company = args.value if args.column == "Company" else row["Company"]
+        position = args.value if args.column == "Position" else row["Position"]
+        corrections.record(company, position, args.column,
                            args.value, args.reason or "set by hand")
+        if args.column == "Company":
+            # Remembered so the ATS's own spelling still matches this row —
+            # otherwise the next scan re-imports the application under it.
+            company_aliases.record(row["Company"], args.value)
         sheets.update_row(args.row, {args.column: args.value})
         print(f"row {args.row} {args.column} = {args.value!r}, and locked "
               f"so no scanner will overwrite it.")

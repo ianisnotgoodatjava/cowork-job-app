@@ -83,6 +83,13 @@ DECISIVE_PHRASES = [
     # others each word it differently, so coverage has to be broad.
     "not to continue with your application",
     "decided not to continue",
+    # JLL's Workday template, sent under the subject "JLL Application
+    # Update": "we have unfortunately decided not to take your application
+    # any further for the position of ...". It closes with "thank you for
+    # your interest in JLL", which is a *confirmation* phrase, so the
+    # application scanner read the rejection as a new application and logged
+    # the role a second time.
+    "take your application any further",
     "another candidate that better",
     "another candidate whose",
     "other candidates at this time",

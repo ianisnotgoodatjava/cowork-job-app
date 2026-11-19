@@ -3,10 +3,22 @@
 A command-line tool that runs a job search end to end: it watches Gmail for
 applications, rejections and replies, keeps a Google Sheet in sync, finds a
 real person to contact at each company, and drafts outreach in your own
-writing voice. ~15k lines of Python across 76 modules and 40 CLI commands.
+writing voice. ~18k lines of Python across 84 modules in eight layers, and
+61 CLI commands under five verbs.
 
-Built for my own search — 600+ applications, 450+ outreach emails — so every
+Built for my own search — 700+ applications, 450+ outreach emails — so every
 design decision came from something that actually went wrong.
+
+The shape is enforced rather than described: `architecture.py` says which
+layer each module belongs to, and a test fails if any import points upward.
+`DESIGN.md` explains why the layers are in the order they are, and what each
+of them was costing before.
+
+```
+python cli.py --help              # the 61 commands, grouped by what they do
+python cli.py auto                # the nightly pipeline
+python cli.py parser-accuracy     # score the confirmation parser, offline
+```
 
 ## What it does
 

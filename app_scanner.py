@@ -311,7 +311,7 @@ def _parse(msg: dict) -> tuple[str, str] | None:
     # this the same application logged twice under two slightly different
     # titles hashes to two keys and dedupe never fires.
     if role:
-        from fix_positions import tidy_role
+        from job_title import tidy_role
         import role_extract
         # Same clean-up the body extractor applies, so a title taken from the
         # subject is not left carrying "position of ..." or a requisition
@@ -384,7 +384,7 @@ def _tracked(company: str, role: str, existing: list[dict]) -> bool:
     Markets", which is the same application by any reading.
     """
     from company_match import _core as core
-    from dedupe import _role_match
+    from job_title import _role_match
 
     target = core(company).replace(" ", "") or normalize(company)
     for r in existing:

@@ -30,7 +30,7 @@ def key(company: str, position: str) -> str:
     same application be logged twice under two spellings.
     """
     import company_id
-    from dedupe import strip_req          # local: dedupe imports company_match
+    from job_title import strip_req
     c = company_id.key(company or "")
     p = " ".join(normalize(strip_req(position or "")).split())
     return f"{c}|{p}"

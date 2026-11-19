@@ -67,54 +67,8 @@ _TITLEISH_RE = re.compile(
 # is not cosmetic: "Internal Wholesaler / Investment Consultant" and
 # "Internal Wholesaler / Investment Consultant at Natixis Investment Managers"
 # hash to different keys, so the same application was logged twice.
-_ROLE_TRAILER_RE = re.compile(
-    r"\s+(?:at|with|for)\s+[A-Z0-9].*$"          # "... at Everest"
-    r"|\s*[>|].*$"                                # quoted-reply markers
-    r"|\s+and\s+(?:thank|for|we|to)\b.*$"         # run-on into body prose
-    r"|\s*,\s*and\b.*$"
-    r"|\s+(?:position|role|opening|vacancy|req(?:uisition)?)\b\.?\s*$",
-    re.S,
-)
-
-
-# Junk that survives the capture and has to come off the front.
-_ROLE_LEADER_RE = re.compile(
-    r"^[\s*\-–—•>|]+"                              # "* Analyst"
-    r"|^(?:[Rr]-?\d{3,}|\d{5,})\s*[-–—:]?\s*"     # "R-29010 - ", "r206 "
-    r"|^(?:role|position|title|job)\s*:\s*",        # "role: Analyst"
-    re.I,
-)
-
-# Where the title stops and the email's prose starts. Cutting at the noun that
-# introduces the sentence is what separates "Revenue Economics Analyst" from
-# "Revenue Economics Analyst position here" — the capture regexes only bound
-# the match loosely, so this does the real trimming.
-_ROLE_PROSE_RE = re.compile(
-    r"\s+(?:position|role|opening|opportunity|job|vacancy|req(?:uisition)?)\b.*$"
-    r"|\.\s+\S.*$"                                 # first sentence boundary
-    r"|\s+(?:we|the|this|that|thank|thanks|your|you|it|our|if|please|as|at|"
-    r"in|for|and|to|is|was|has|have)\s*$"            # truncated next sentence
-    # Words that never appear inside a job title, so anything from here on is
-    # the email talking: "... Category Analyst We have considered ...".
-    r"|\s+(?:we|thank|thanks|please|unfortunately|congratulations|dear|"
-    r"hello|hi|regards)\b.*$",
-    re.I | re.S,
-)
-
-
-def tidy_role(role: str) -> str:
-    """Trims a captured job title down to just the title."""
-    role = re.sub(r"\s+", " ", role or "").strip()
-    role = _ROLE_LEADER_RE.sub("", role).strip()
-    previous = None
-    while role != previous:
-        previous = role
-        role = _ROLE_PROSE_RE.sub("", role).strip(" -–—,:;.\"'")
-    previous = None
-    while role != previous:
-        previous = role
-        role = _ROLE_TRAILER_RE.sub("", role).strip(" -–—,:;.\"'")
-    return role
+# Moved to job_title; see there. Re-exported for existing callers.
+from job_title import tidy_role  # noqa: F401
 
 
 def _clean(text: str) -> str:

@@ -52,51 +52,15 @@ def _company_key(row: dict) -> str:
 # three times as "Investment Portfolio Analyst", "... Job ID# 2025" and
 # "... Job ID#" — identical roles that compared as different titles because
 # the ATS reference was captured inconsistently.
-_REQ_TAIL_RE = re.compile(
-    r"\s*[-–(,]?\s*(job\s*id\s*#?|req(uisition)?\.?\s*(id|no|number)?\s*#?|"
-    r"requisition|posting\s*id)\b[\s#:.-]*[\w-]*\)?\s*$", re.I)
+# Moved to job_title: string functions that a sheet-maintenance module
+# should not own. Re-exported so existing callers keep working.
+from job_title import strip_req  # noqa: F401
 
 
-def strip_req(title: str) -> str:
-    """Drops a trailing job-ID / requisition fragment from a job title."""
-    previous, out = None, (title or "").strip()
-    while out != previous:
-        previous = out
-        out = _REQ_TAIL_RE.sub("", out).strip(" -–—,(#:")
-    return out
+# Pure title comparison, moved to job_title so the scanner does not have to
+# import a sheet-maintenance module to use it.
+from job_title import _role_match  # noqa: F401
 
-
-def _title_tokens(title: str) -> set[str]:
-    return {t for t in re.findall(r"[a-z0-9]+", (title or "").lower())
-            if t not in _STOP and len(t) > 2}
-
-
-def _role_match(a: str, b: str) -> str:
-    """How confidently two titles are the same role: '', 'fuzzy', or 'sure'.
-
-    Token overlap alone is not enough to delete on. Fitch's "Structured
-    Finance - ABS / CMBS / RMBS, Analyst - New York" titles share every word
-    except the one that matters, and a 0.6-overlap rule wanted to merge three
-    separate applications into one. So overlap only ever reports a *fuzzy*
-    match for you to look at; deletion needs an exact or prefix match.
-    """
-    na, nb = normalize(strip_req(a)).strip(), normalize(strip_req(b)).strip()
-    if not na or not nb:
-        return ""
-    if na == nb:
-        return "sure"
-    # "Consultant" vs "Consultant at Natixis" — the same title with the
-    # company dragged along.
-    if na.startswith(nb) or nb.startswith(na):
-        return "sure"
-
-    ta, tb = _title_tokens(a), _title_tokens(b)
-    if not ta or not tb:
-        return ""
-    # A word one title has and the other lacks is usually the whole point
-    # (ABS vs CMBS, equity vs quantitative), so never treat that as certain.
-    overlap = len(ta & tb) / min(len(ta), len(tb))
-    return "fuzzy" if overlap >= 0.7 else ""
 
 
 def _provenance_available(rows: list[dict]) -> bool:

@@ -13,26 +13,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import sheets
-import status as status_mod
-import gmail_client
-import linkedin_helper
-import rejection_scanner
-import link_finder
-import app_scanner
-import auto_pipeline
-import draft_cleanup
-import follow_up
-import sheet_format
-import stale
-from date_utils import parse_date
-from config import NETWORKING_KEYWORDS
-import email_drafter
+from store import sheets
+from core import status as status_mod
+from store import gmail_client
+from core import linkedin_helper
+from sources import rejection_scanner
+from sources import link_finder
+from sources import app_scanner
+from flows import auto_pipeline
+from outreach import draft_cleanup
+from outreach import follow_up
+from sheetops import sheet_format
+from sheetops import stale
+from core.date_utils import parse_date
+from core.config import NETWORKING_KEYWORDS
+from outreach import email_drafter
 
 
 def cmd_log_application(args):
-    import apply_capture
-    from company_match import _core
+    from sources import apply_capture
+    from core.company_match import _core
 
     title, company = args.job_title or "", args.company or ""
     location, link = args.location or "", args.link or args.url or ""
@@ -145,12 +145,12 @@ def cmd_auto(args):
 
 
 def cmd_train_rejection_model(args):
-    import rejection_model
+    from sources import rejection_model
     rejection_model.train(days_back=args.days)
 
 
 def cmd_open_loops(args):
-    import open_loops
+    from outreach import open_loops
     open_loops.run(days_back=args.days)
 
 
@@ -159,24 +159,24 @@ def cmd_follow_ups(args):
 
 
 def cmd_setup(args):
-    import setup_wizard
+    from apply import setup_wizard
     setup_wizard.run(create=args.create_sheet, title=args.title)
 
 
 def cmd_stage_drafts(args):
-    import stage_drafts
+    from outreach import stage_drafts
     stage_drafts.run(dry_run=not args.write, create_drafts=args.drafts,
                      resume=args.company)
 
 
 def cmd_schedule_followups(args):
-    import followup_scheduler
+    from outreach import followup_scheduler
     followup_scheduler.run(min_age_days=args.min_age, max_age_days=args.max_age,
                            max_drafts=args.max, dry_run=not args.draft)
 
 
 def cmd_enable_calendar(args):
-    import google_auth
+    from store import google_auth
     if google_auth.has_calendar_access():
         print("Calendar access is already granted.")
         return
@@ -187,38 +187,38 @@ def cmd_enable_calendar(args):
 
 
 def cmd_autofill_extension(args):
-    import autofill_extension
+    from apply import autofill_extension
     autofill_extension.run()
 
 
 def cmd_autofill_link(args):
-    import autofill_bookmarklet
+    from apply import autofill_bookmarklet
     autofill_bookmarklet.run()
 
 
 def cmd_apply_profile(args):
-    import apply_autofill
+    from apply import apply_autofill
     apply_autofill.run(company=args.company, role=args.role)
 
 
 def cmd_auto_outreach(args):
-    import auto_outreach
+    from outreach import auto_outreach
     auto_outreach.run(limit=args.limit, want=args.contacts, dry_run=args.dry_run)
 
 
 def cmd_find_people(args):
-    import people_search
+    from people import people_search
     people_search.run(args.company, role=args.role, domain=args.domain,
                       state=args.state)
 
 
 def cmd_recent_contacts(args):
-    import recent_contacts
+    from people import recent_contacts
     recent_contacts.sweep(dry_run=args.dry_run, days=args.days)
 
 
 def cmd_cover_letter(args):
-    import cover_letter
+    from apply import cover_letter
     made = cover_letter.build(args.body_file, args.company,
                               recipient=[r for r in (args.recipient or [])],
                               date=args.date)
@@ -229,12 +229,12 @@ def cmd_cover_letter(args):
 
 
 def cmd_clean_positions(args):
-    import clean_positions
+    from sheetops import clean_positions
     clean_positions.run(dry_run=args.dry_run)
 
 
 def cmd_address_for(args):
-    import company_formats
+    from people import company_formats
     pattern, why = company_formats.pattern_for(args.domain)
     if not pattern:
         print(f"No address built for {args.domain}: {why}")
@@ -246,7 +246,7 @@ def cmd_address_for(args):
 
 
 def cmd_interview_times(args):
-    import gmail_client, interview_calendar
+    from store import gmail_client, interview_calendar
     threads = gmail_client.search_messages(
         f"newer_than:{args.days}d (interview OR \"speak\" OR \"call\")",
         include_body=True, max_results=args.limit)
@@ -269,7 +269,7 @@ def cmd_interview_times(args):
 
 
 def cmd_prep(args):
-    import prep_package
+    from apply import prep_package
     if not args.url and not args.text_file:
         raise SystemExit("give me either --url or --text-file")
     prep_package.generate(url=args.url, row_number=args.row, company=args.company,
@@ -279,32 +279,32 @@ def cmd_prep(args):
 
 
 def cmd_backfill_job_descriptions(args):
-    import jd_backfill
+    from sheetops import jd_backfill
     jd_backfill.run(dry_run=args.dry_run, limit=args.limit, days_back=args.days)
 
 
 def cmd_find_jobs(args):
-    import job_finder
+    from sources import job_finder
     areas = [args.area] if args.area else None
     job_finder.run(areas=areas, per_area=args.per_area,
                    skip_tracked_companies=args.new_companies_only)
 
 
 def cmd_watch(args):
-    import watch
+    from flows import watch
     watch.run(days_back=args.days, limit=args.limit, min_fit=args.min_fit,
               dry_run=args.dry_run, draft=not args.no_draft,
               deep=getattr(args, "deep", None))
 
 
 def cmd_addresses(args):
-    import address_book
+    from people import address_book
     address_book.run(days_back=args.days, refresh=not args.cached,
                      address=args.check or "")
 
 
 def cmd_auto_draft(args):
-    import auto_draft
+    from outreach import auto_draft
     auto_draft.run(limit=args.limit, min_fit=args.min_fit,
                    dry_run=not args.write_drafts,
                    create_drafts=args.write_drafts,
@@ -313,28 +313,28 @@ def cmd_auto_draft(args):
 
 
 def cmd_batch_outreach(args):
-    import batch_outreach
+    from outreach import batch_outreach
     batch_outreach.run(limit=args.limit, min_fit=args.min_fit)
 
 
 def cmd_backfill_locations(args):
-    import location_backfill
+    from sheetops import location_backfill
     location_backfill.run(dry_run=args.dry_run, days_back=args.days,
                           use_email=not args.no_email)
 
 
 def cmd_targets(args):
-    import targets
+    from outreach import targets
     targets.run(days_back=args.days)
 
 
 def cmd_style(args):
-    import style_profile
+    from outreach import style_profile
     style_profile.run()
 
 
 def cmd_edgar(args):
-    import edgar_finder
+    from people import edgar_finder
     if args.form_d:
         edgar_finder.run_form_d(args.company)
     else:
@@ -342,18 +342,18 @@ def cmd_edgar(args):
 
 
 def cmd_sourcing(args):
-    import sourcing
+    from people import sourcing
     sourcing.run(args.company, role=args.role or "", state=args.state)
 
 
 def cmd_people(args):
-    import people_finder
+    from people import people_finder
     people_finder.run(args.company, state=args.state, limit=args.limit,
                       show=args.show)
 
 
 def cmd_findability(args):
-    import findability
+    from people import findability
     if args.coverage:
         findability.run_coverage(days_back=args.days)
     else:
@@ -361,13 +361,13 @@ def cmd_findability(args):
 
 
 def cmd_who_replies(args):
-    import contact_policy
+    from people import contact_policy
     contact_policy.analyse(days_back=args.days, limit=args.limit)
 
 
 def cmd_corrections(args):
-    import company_aliases
-    import corrections
+    from core import company_aliases
+    from core import corrections
     if args.row:
         row = sheets.get_row(args.row)
         if not args.column or not args.value:
@@ -400,28 +400,28 @@ def cmd_corrections(args):
 
 
 def cmd_dedupe(args):
-    import dedupe
+    from sheetops import dedupe
     dedupe.run(dry_run=args.dry_run, max_day_gap=args.max_day_gap)
 
 
 def cmd_fix_positions(args):
-    import fix_positions
+    from sheetops import fix_positions
     fix_positions.run(dry_run=args.dry_run, days_back=args.days)
 
 
 def cmd_reoutreach(args):
-    import reoutreach
+    from outreach import reoutreach
     reoutreach.scan(days_back=args.days, min_silent_days=args.min_silent)
 
 
 def cmd_scan_replies(args):
-    import reply_scanner
+    from sources import reply_scanner
     reply_scanner.scan(days_back=args.days, dry_run=args.dry_run,
                        use_calendar=not args.no_calendar, notify=args.notify)
 
 
 def cmd_train_interview_model(args):
-    import interview_model
+    from sources import interview_model
     interview_model.train(days_back=args.days)
 
 
@@ -457,12 +457,12 @@ def cmd_export_past_outreach(args):
 
 
 def cmd_build_outreach_corpus(args):
-    import outreach_corpus
+    from outreach import outreach_corpus
     outreach_corpus.build(max_results=args.limit)
 
 
 def cmd_outreach_examples(args):
-    import outreach_retrieval as orx
+    from outreach import outreach_retrieval as orx
     row = sheets.get_row(args.row)
     query = orx.build_query(
         company=row.get("Company", ""),
@@ -501,7 +501,7 @@ def cmd_save_contact(args):
 
 
 def cmd_draft_outreach_email(args):
-    import recent_contacts
+    from people import recent_contacts
     when = recent_contacts.is_duplicate(args.to, args.subject)
     if when:
         print(f"Refusing: you already wrote to {args.to} on {when}.")
@@ -558,12 +558,12 @@ def _today_mdy() -> str:
 
 
 def cmd_network_audit(args):
-    import network_audit
+    from people import network_audit
     network_audit.run(days_back=args.days, dry_run=args.dry_run)
 
 
 def cmd_clean_sheet(args):
-    import sheet_clean
+    from sheetops import sheet_clean
     sheet_clean.run(dry_run=args.dry_run)
 
 

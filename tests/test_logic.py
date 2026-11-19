@@ -19,9 +19,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import date_utils
-import followup_model
-import stage_drafts
+from core import date_utils
+from outreach import followup_model
+from outreach import stage_drafts
 
 
 class TestAddressConfidence:
@@ -242,7 +242,7 @@ class TestIdentity:
     not get wrong."""
 
     def _pattern(self, monkeypatch, tmp_path, env=None, profile=None):
-        import config
+        from core import config
         monkeypatch.chdir(tmp_path)
         for key in ("OWN_EMAIL", "OWN_NAME"):
             monkeypatch.delenv(key, raising=False)
@@ -300,24 +300,24 @@ class TestHeaderAliases:
     cloning this should have to reproduce a typo."""
 
     def test_legacy_spelling_gains_the_canonical_one(self):
-        import sheets
+        from store import sheets
         row = sheets._with_aliases({"Applied Draes": "6/27/2026"})
         assert row["Applied Date"] == "6/27/2026"
 
     def test_canonical_spelling_gains_the_legacy_one(self):
         """So the forty call sites written against the typo keep working on a
         sheet created today."""
-        import sheets
+        from store import sheets
         row = sheets._with_aliases({"Applied Date": "6/27/2026"})
         assert row["Applied Draes"] == "6/27/2026"
 
     def test_existing_value_is_not_overwritten(self):
-        import sheets
+        from store import sheets
         row = sheets._with_aliases({"Applied Draes": "a", "Applied Date": "b"})
         assert (row["Applied Draes"], row["Applied Date"]) == ("a", "b")
 
     def test_a_fresh_sheet_gets_the_better_names(self):
-        import config
+        from core import config
         assert "Applied Date" in config.CANONICAL
         assert "Applied Draes" not in config.CANONICAL
         assert len(config.CANONICAL) == len(config.HEADERS)
@@ -335,7 +335,7 @@ class TestSharedClassifier:
     def test_folds_never_exceed_the_smaller_class(self):
         """cross_val_score with a fixed cv=5 raises on a class of 3, which is
         a confusing way to learn your training set is too small."""
-        import text_classifier
+        from core import text_classifier
         X = [f"rejected unfortunately {i}" for i in range(12)] + \
             [f"interview scheduled {i}" for i in range(3)]
         y = [0] * 12 + [1] * 3
@@ -351,7 +351,7 @@ class TestSharedClassifier:
     def test_too_few_examples_refuses_rather_than_fits(self, tmp_path):
         """A confident-looking model trained on a handful is worse than none,
         because the caller believes it."""
-        import text_classifier
+        from core import text_classifier
         with pytest.raises(SystemExit) as excinfo:
             text_classifier.train_and_save(
                 ["a", "b", "c"], [0, 1, 0],
@@ -361,7 +361,7 @@ class TestSharedClassifier:
     def test_missing_pickle_loads_as_none(self, tmp_path):
         """Callers all have a phrase-rule fallback and should use it rather
         than stop."""
-        import text_classifier
+        from core import text_classifier
         assert text_classifier.load(str(tmp_path / "absent.pkl")) is None
 
 
@@ -382,7 +382,7 @@ class TestWorkdayFieldMatching:
     @staticmethod
     def _match(label: str):
         """Longest matcher wins, as in the script."""
-        import autofill_bookmarklet as bm
+        from apply import autofill_bookmarklet as bm
         best, best_len = None, 0
         for keys, target in bm.MATCHERS:
             for key in keys:
@@ -410,7 +410,7 @@ class TestWorkdayFieldMatching:
         silently truncates the entire rest of the script."""
         import urllib.parse
 
-        import autofill_bookmarklet as bm
+        from apply import autofill_bookmarklet as bm
         link = bm.build()
         body = urllib.parse.unquote(
             link[len("javascript:"):] if link.startswith("javascript:") else link)
@@ -439,8 +439,8 @@ class TestEEOAnswers:
     @staticmethod
     def _answer(question: str):
         """Mirrors answerFor(): refusals, then rules, then profile matchers."""
-        import autofill_bookmarklet as bm
-        import apply_autofill
+        from apply import autofill_bookmarklet as bm
+        from apply import apply_autofill
         q = question.lower()
         never = (tuple(apply_autofill.NEVER_FILL) + bm.EEO_FIELDS
                  + bm.CONSENT_FIELDS + bm.DECISIVE_FIELDS)
@@ -510,43 +510,43 @@ class TestApplicationIdentity:
                 "Investment Portfolio Analyst Job ID# 2025")
 
     def test_ats_reference_does_not_change_identity(self):
-        import app_identity
+        from core import app_identity
         company, clean, noisy = self.ATS_PAIR
         assert app_identity.key(company, clean) == app_identity.key(company, noisy)
 
     def test_corrections_and_job_finder_agree(self):
         """The disagreement that caused the bug, pinned shut."""
-        import corrections
-        import job_finder
+        from core import corrections
+        from sources import job_finder
         company, clean, noisy = self.ATS_PAIR
         for position in (clean, noisy):
             assert (corrections.row_key(company, position)
                     == job_finder._tracking_key(company, position))
 
     def test_auto_draft_agrees_with_corrections(self):
-        import auto_draft
-        import corrections
+        from outreach import auto_draft
+        from core import corrections
         company, clean, _ = self.ATS_PAIR
         row = {"Company": company, "Position": clean}
         assert auto_draft._key(row) == corrections.row_key(company, clean)
 
     def test_locks_written_under_the_old_key_are_still_found(self):
         """There are real locks on disk from before the consolidation."""
-        import app_identity
+        from core import app_identity
         company, clean, noisy = self.ATS_PAIR
         saved = {app_identity.legacy_key(company, noisy): "Applied"}
         assert app_identity.lookup(saved, company, noisy) == "Applied"
 
     def test_drafted_markers_match_under_either_spelling(self):
-        import app_identity
-        import auto_draft
+        from core import app_identity
+        from outreach import auto_draft
         company, clean, noisy = self.ATS_PAIR
         row = {"Company": company, "Position": noisy}
         done = {app_identity.legacy_key(company, noisy)}
         assert auto_draft._already_done(row, done), "would re-bill a paid draft"
 
     def test_identity_ignores_case_and_spacing(self):
-        import app_identity
+        from core import app_identity
         assert (app_identity.key("KBRA", "Analyst")
                 == app_identity.key("kbra ", " analyst"))
 
@@ -555,7 +555,7 @@ class TestWatchRowCounting:
     """The pass used to report "0 row(s) added" on a pass that added eight."""
 
     def test_key_survives_renumbering(self):
-        import watch
+        from flows import watch
         a = {"row_number": 12, "Company": "KBRA", "Position": "Analyst",
              "Applied Draes": "9/1/2026"}
         b = dict(a, row_number=480)
@@ -563,7 +563,7 @@ class TestWatchRowCounting:
 
     def test_additions_and_removals_do_not_cancel(self):
         """Counting by length netted three added against three removed to zero."""
-        import watch
+        from flows import watch
         before = {watch._row_key({"Company": c, "Position": "Analyst",
                                   "Applied Draes": "9/1/2026"})
                   for c in ("A", "B", "C")}

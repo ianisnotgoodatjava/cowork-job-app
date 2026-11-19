@@ -19,9 +19,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import company_formats
-import people_search
-import recent_contacts
+from people import company_formats
+from people import people_search
+from people import recent_contacts
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -158,7 +158,7 @@ class TestSheetCache:
     """
 
     def _fake_sheet(self, monkeypatch, rows):
-        import sheets
+        from store import sheets
         calls = {"n": 0}
 
         def fake_service():
@@ -185,7 +185,7 @@ class TestSheetCache:
         return calls
 
     def test_second_read_does_not_hit_the_api(self, monkeypatch):
-        import sheets
+        from store import sheets
         calls = self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
         sheets.list_rows()
         sheets.list_rows()
@@ -193,14 +193,14 @@ class TestSheetCache:
         assert calls["n"] == 1
 
     def test_refresh_forces_a_reread(self, monkeypatch):
-        import sheets
+        from store import sheets
         calls = self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
         sheets.list_rows()
         sheets.list_rows(refresh=True)
         assert calls["n"] == 2
 
     def test_invalidate_forces_a_reread(self, monkeypatch):
-        import sheets
+        from store import sheets
         calls = self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
         sheets.list_rows()
         sheets._invalidate()
@@ -211,7 +211,7 @@ class TestSheetCache:
         # Several callers annotate the dicts they are handed. Sharing the
         # cached objects would let one step's bookkeeping appear in another
         # step's input.
-        import sheets
+        from store import sheets
         self._fake_sheet(monkeypatch, [["Acme", "Analyst"]])
         first = sheets.list_rows()
         first[0]["scratch"] = "x"
@@ -223,7 +223,7 @@ class TestSheetCache:
         import ast
         import inspect
 
-        import sheets
+        from store import sheets
         tree = ast.parse(inspect.getsource(sheets))
         writers = {"append_job_row", "update_row", "update_rows",
                    "delete_rows", "sort_by_applied_date", "ensure_headers"}
@@ -247,7 +247,7 @@ class TestDraftHeaderStore:
     """
 
     def _gmail(self, monkeypatch, tmp_path, drafts, headers, fetched):
-        import gmail_client
+        from store import gmail_client
 
         class Drafts:
             def list(self, **kw):

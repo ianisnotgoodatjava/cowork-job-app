@@ -96,19 +96,17 @@ def _tracking_key(company: str, title: str) -> str:
     Analyst (Req 2026-0022674)" while a posting is titled "USD Rates Analyst",
     and without stripping, an application already made looks brand new.
     """
-    from company_match import _core, normalize
-    from dedupe import strip_req
-    return (f"{_core(company or '').replace(' ', '')}"
-            f"|{normalize(strip_req(title or ''))}")
+    import app_identity
+    return app_identity.key(company, title)
 
 
 def _already_tracked(rows: list[dict]) -> set:
-    from company_match import _core
+    import company_id
     keys = set()
     for r in rows:
         keys.add(_tracking_key(r.get("Company", ""), r.get("Position", "")))
         # Bare company key, used only by --new-companies-only.
-        keys.add(_core(r.get("Company", "")).replace(" ", ""))
+        keys.add(company_id.key(r.get("Company", "")))
     return keys
 
 

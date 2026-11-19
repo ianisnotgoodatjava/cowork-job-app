@@ -175,9 +175,15 @@ def pattern_for(domain: str, registry: dict | None = None) -> tuple[str, str]:
 # says which vendor the employer buys from, not where its staff read mail.
 
 def _slugify(text: str) -> str:
-    from company_match import _core, normalize
-    return re.sub(r"[^a-z0-9]", "",
-                  (_core(text or "") or normalize(text or "")).lower())
+    """The company's identity key, for comparing against a domain label.
+
+    Reads through company_id so a name and its aliases agree here with every
+    other place that asks. It used to build its own key from _core, which
+    reduced "S&P Global" to "sp" -- and this function decides which domain an
+    employer's mail goes to, so a two-character key here is a bounced email.
+    """
+    import company_id
+    return re.sub(r"[^a-z0-9]", "", company_id.key(text or ""))
 
 
 def _same_employer(label: str, want: str) -> bool:

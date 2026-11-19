@@ -73,7 +73,20 @@ ALIASES = {
     "fitchgroup": "fitch",
     "spglobal": "s&p global",
     "bmocapitalmarkets": "bmo",
+    # Found by propose_aliases over the sheet, then judged one at a time.
+    # Each matters because the two spellings carry different statuses, so
+    # treating them as separate firms lets a closed one speak for an open one
+    # -- "Flagstar Bank" was interview-rejected while "Flagstar" is
+    # interviewing, and the drafts for the live role were queued for deletion.
+    "flagstarbank": "flagstar",
+    "otcflowus": "otc flow",
+    "virtusinvestmentpartners": "virtus",
 }
+
+# Pairs propose_aliases offers that are deliberately NOT merged:
+#   AXA XL Investment Management / AXA XL -- a rejection by the asset manager
+#     should not close the employer Ian actually works for.
+#   Horizon Investments / Horizon -- "Horizon" alone is too generic to claim.
 
 _PUNCT_RE = re.compile(r"[^\w\s&]+")
 _SPACE_RE = re.compile(r"\s+")
@@ -90,19 +103,41 @@ def _fold(name: str) -> str:
     return _SPACE_RE.sub(" ", text).strip()
 
 
+def _learned_alias(spaced: str, folded: str) -> str:
+    """What `company_aliases` has recorded, if anything.
+
+    That store is written whenever a company is corrected on the sheet, so it
+    holds the renames this mailbox has actually produced -- "hyperiongrp" to
+    Howden, "lavine" to VRC. It is keyed with spaces where this module folds
+    them out, so both spellings are tried.
+    """
+    try:
+        import company_aliases
+        learned = company_aliases.load()
+    except Exception:
+        return ""
+    for candidate in (spaced, folded):
+        hit = learned.get(candidate)
+        if hit:
+            return hit
+    return ""
+
+
 def key(name: str) -> str:
     """The identity of an employer name. Exact, never fuzzy.
 
     "Allstate Insurance Company" and "Allstate" give different keys on
-    purpose — if they are the same employer, ALIASES says so.
+    purpose — if they are the same employer, an alias says so. Two alias
+    sources feed in: the table below, and the renames `company_aliases` has
+    learned from corrections made on the sheet.
     """
     words = [w for w in _fold(name).split() if w not in _LEGAL_SUFFIXES]
     if not words:
         return ""
     folded = "".join(words)
-    alias = ALIASES.get(folded)
-    if alias:
-        return key(alias) if _fold(alias) != _fold(name) else folded
+    alias = ALIASES.get(folded) or _learned_alias(" ".join(words), folded)
+    if alias and _fold(alias) != _fold(name):
+        return key(alias)
     return folded
 
 

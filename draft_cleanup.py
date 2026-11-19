@@ -73,20 +73,19 @@ def _drafts() -> list[dict]:
 def _same_company(a: str, b: str) -> bool:
     """Whether two sheet spellings are the same employer.
 
-    The sheet holds the same company under several names, because the
-    scanners derive them from whatever the ATS put in the From header:
-    "bancofcal" and "Banc of California" are one bank, "Scale" and "Scale
-    Microgrids" one developer. Comparing slugs for equality treated each
-    pair as two firms, so one spelling looked fully rejected while the
-    other still had a live application — and this would have deleted the
-    drafts for it.
+    Delegates to company_id, which answers this exactly and consults the
+    alias table for the pairs no rule can settle -- "bancofcal" and "Banc of
+    California", "Scale" and "Scale Microgrids".
+
+    It used to merge on a shared prefix, which is dangerous in this module
+    above all others: this function decides whether to delete a draft, and a
+    false merge means one spelling reads as fully rejected while the other
+    still has a live application, taking its drafts with it. "Russell
+    Investments" and "Russell Tobin" are different firms that a prefix rule
+    cannot tell apart.
     """
-    if not a or not b:
-        return False
-    if a == b:
-        return True
-    short, long_ = sorted((a, b), key=len)
-    return len(short) >= 5 and long_.startswith(short)
+    import company_id
+    return company_id.same(a, b)
 
 
 def dead_companies() -> list[str]:

@@ -109,3 +109,25 @@ class TestAliasTableIntegrity:
     def test_aliases_resolve_to_a_real_identity(self):
         for variant, canonical in company_id.ALIASES.items():
             assert company_id.key(canonical), f"{canonical!r} has no key"
+
+
+class TestStatusCarryingVariants:
+    """Spellings that carry different statuses on the sheet.
+
+    These are the costly ones. When two spellings of one employer key apart,
+    the closed one speaks for the whole company and draft_cleanup deletes the
+    drafts belonging to the live role. "Flagstar Bank" was interview-rejected
+    while "Flagstar" was interviewing, and a dry run queued both Flagstar
+    drafts for deletion.
+    """
+
+    def test_variants_that_must_merge(self):
+        for a, b in [("Flagstar Bank", "Flagstar"),
+                     ("OTC FLOW U.S.", "OTC Flow"),
+                     ("Virtus Investment Partners", "Virtus")]:
+            assert company_id.same(a, b), f"{a} must equal {b}"
+
+    def test_variants_deliberately_kept_apart(self):
+        # A rejection by the asset manager must not close the employer Ian
+        # works for, and "Horizon" alone is too generic to claim.
+        assert not company_id.same("AXA XL Investment Management", "AXA XL")

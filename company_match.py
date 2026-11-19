@@ -177,8 +177,12 @@ def slug(company: str) -> str:
 
     Was copied into findability, draft_cleanup and targets, byte for byte in
     two of them. Three copies of a matching rule is how they drift, and this
-    one decides whether a draft gets deleted -- so it lives next to _core and
-    normalize, which it is built from.
+    one decides whether a draft gets deleted.
+
+    It now delegates to company_id, which is the single answer to "are these
+    the same employer" and consults the alias table. Built from _core, it
+    reduced "S&P Global" to "sp" and "U.S. Bank" to "us" -- two-character
+    keys that match hundreds of firms.
     """
-    return (_core(company or "").replace(" ", "")
-            or normalize(company or "").replace(" ", ""))
+    import company_id
+    return company_id.key(company or "")

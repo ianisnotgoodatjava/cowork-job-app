@@ -22,10 +22,16 @@ from company_match import _core, normalize
 
 
 def key(company: str, position: str) -> str:
-    """Identity that survives re-sorting, renumbering and ATS reference noise."""
+    """Identity that survives re-sorting, renumbering and ATS reference noise.
+
+    The company half comes from company_id, so an application filed under an
+    ATS tenant name -- "Moody's WorkWise", "hyperiongrp" -- keys the same as
+    one filed under the employer. Keying it on _core instead is what let the
+    same application be logged twice under two spellings.
+    """
+    import company_id
     from dedupe import strip_req          # local: dedupe imports company_match
-    c = (_core(company or "").replace(" ", "")
-         or normalize(company or "").replace(" ", ""))
+    c = company_id.key(company or "")
     p = " ".join(normalize(strip_req(position or "")).split())
     return f"{c}|{p}"
 

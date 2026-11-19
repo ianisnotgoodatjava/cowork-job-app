@@ -21,7 +21,7 @@ from sources import interview_signals
 from sources import rejection_scanner
 from store import sheets
 from core.company_match import _domain_label, _is_vendor_domain, company_mentioned
-from store.calendar_client import _GENERIC_DOMAINS
+from core.company_match import GENERIC_DOMAINS as _GENERIC_DOMAINS
 from core.config import ME_RE, NETWORKING_KEYWORDS
 
 

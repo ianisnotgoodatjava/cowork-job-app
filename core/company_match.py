@@ -80,6 +80,23 @@ def company_mentioned(company: str, haystack: str) -> bool:
 
 # Applicant-tracking and mail vendors. Every company's mail flows through
 # these, so a name matching one of them means nothing.
+# Consumer mail hosts. A message from one of these tells you nothing about
+# an employer: a recruiter writing from their own gmail is still a person at
+# an unknown company, and reading the domain as a company name produced rows
+# called "Gmail".
+#
+# This list lived in store/calendar_client.py and was imported from there by
+# the confirmation parser and the re-outreach guard, neither of which has
+# anything to do with calendars. It is sender data, so it belongs beside the
+# other sender rules — and keeping it here is what lets the parser sit in
+# core, with nothing below it.
+GENERIC_DOMAINS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com",
+    "icloud.com", "aol.com", "me.com", "nyu.edu", "proton.me", "protonmail.com",
+    "resource.calendar.google.com", "group.calendar.google.com",
+}
+
+
 _VENDOR_DOMAINS = {
     "myworkday", "workday", "oraclecloud", "taleo", "icims", "greenhouse",
     "greenhouse-mail", "lever", "hire", "successfactors", "sap", "brassring",

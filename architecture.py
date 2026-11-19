@@ -24,6 +24,7 @@ LAYERS = ["core", "store", "sources", "people", "sheetops", "apply", "outreach",
 LAYOUT = {
     # core: pure logic, no IO, no other layer
     "core": ["config", "date_utils", "status", "company_id", "company_match",
+        "confirmation_parser",
              "app_identity", "company_aliases", "corrections", "job_title", "role_extract", "text_classifier", "job_posting",
              "resume_bank", "sender_profile", "linkedin_helper", "hook_forms"],
     # store: everything that touches the network or disk state

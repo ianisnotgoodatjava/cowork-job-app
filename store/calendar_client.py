@@ -14,7 +14,7 @@ import re
 from googleapiclient.discovery import build
 
 from store.google_auth import get_credentials, has_calendar_access
-from core.company_match import company_mentioned, normalize as normalize_company
+from core.company_match import GENERIC_DOMAINS, company_mentioned, normalize as normalize_company
 
 # Personal/holiday noise that would otherwise match short company names.
 _SKIP_SUMMARY_RE = re.compile(
@@ -24,11 +24,9 @@ _SKIP_SUMMARY_RE = re.compile(
 
 # Generic mail hosts — an attendee at gmail.com tells us nothing about which
 # company the meeting was with.
-_GENERIC_DOMAINS = {
-    "gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com",
-    "icloud.com", "aol.com", "me.com", "nyu.edu", "proton.me", "protonmail.com",
-    "resource.calendar.google.com", "group.calendar.google.com",
-}
+# Defined in core.company_match, with the other sender rules. Kept bound
+# here under the old name so this module reads the same as it did.
+_GENERIC_DOMAINS = GENERIC_DOMAINS
 
 _MEETING_HINT_RE = re.compile(
     r"\b(interview|call|chat|screen|screening|coffee|meeting|zoom|teams|"

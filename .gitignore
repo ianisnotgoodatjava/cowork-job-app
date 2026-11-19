@@ -33,3 +33,8 @@ logs/draft_headers.json
 # The sender's own identity: name, school, employer, contact details.
 # profile.example.json has the same shape with placeholders.
 profile.json
+
+# A frozen pull of every confirmation email in the mailbox, used to measure
+# the parser offline. Two years of one person's job search, and this repo is
+# public. tests/test_confirmation_parser.py skips when it is absent.
+tests/fixtures/confirmations.json

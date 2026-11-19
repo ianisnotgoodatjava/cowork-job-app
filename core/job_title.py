@@ -45,7 +45,16 @@ _ROLE_TRAILER_RE = re.compile(
 # Junk that survives the capture and has to come off the front.
 _ROLE_LEADER_RE = re.compile(
     r"^[\s*\-–—•>|]+"                              # "* Analyst"
-    r"|^(?:[Rr]-?\d{3,}|\d{5,})\s*[-–—:]?\s*"     # "R-29010 - ", "r206 "
+    # "R-29010 - ", "r206 ", and the Workday form where an all-caps ATS code
+    # is hyphen-glued to the id: "10078709-WD Corporate Banking Analyst".
+    # Without that second group the digits came off and the orphaned "WD"
+    # stayed, so the title reached the sheet as "WD Corporate Banking
+    # Analyst" — and role_extract's own requisition rule could no longer
+    # recognise it, because what it looks for is the id and the code
+    # together. The code group stays case-sensitive despite the re.I below:
+    # with the flag applied, [A-Z]{2,3} matched "St" in "12345-St Louis
+    # Analyst" and cut the city in half.
+    r"|^(?:[Rr]-?\d{3,}|\d{5,})(?:[-–](?-i:[A-Z]{2,3}))?\s*[-–—:]?\s*"
     r"|^(?:role|position|title|job)\s*:\s*",        # "role: Analyst"
     re.I,
 )

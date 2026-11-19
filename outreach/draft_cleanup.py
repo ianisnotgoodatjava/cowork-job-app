@@ -129,7 +129,7 @@ def _confirmations_by_company(days_back: int = 120) -> dict:
     cleanup into a multi-minute crawl for an answer that comes from the same
     result set every time.
     """
-    from sources import app_scanner
+    from core import confirmation_parser
 
     phrases = " OR ".join(f'"{ph}"' for ph in CONFIRMATION_PHRASES)
     try:
@@ -145,7 +145,7 @@ def _confirmations_by_company(days_back: int = 120) -> dict:
         # subject read KBRA's daily rating alerts as applications to Kroll,
         # because KBRA is Kroll Bond Rating Agency — which would have
         # protected Kroll's drafts forever.
-        parsed = app_scanner._parse(msg)
+        parsed = confirmation_parser.parse(msg)
         if not parsed:
             continue
         # A rejection parses as a confirmation for the same company —
@@ -157,7 +157,7 @@ def _confirmations_by_company(days_back: int = 120) -> dict:
         when = _latest([msg])
         if when is None:
             continue
-        slug = company_slug(parsed[0])
+        slug = company_slug(parsed.company)
         if slug and (slug not in newest or when > newest[slug]):
             newest[slug] = when
     return newest

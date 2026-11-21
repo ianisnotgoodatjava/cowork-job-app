@@ -28,7 +28,9 @@ LAYOUT = {
     "core": ["config", "date_utils", "status", "company_id", "company_match",
         "confirmation_parser",
              "app_identity", "company_aliases", "corrections", "job_title", "role_extract", "text_classifier", "job_posting",
-             "resume_bank", "sender_profile", "linkedin_helper", "hook_forms"],
+             "resume_bank", "sender_profile", "linkedin_helper", "hook_forms",
+             # Written but never wired up: nothing imports it yet.
+             "taiwan_signals"],
     # store: everything that touches the network or disk state
     "store": ["google_auth", "gmail_client", "sheets", "calendar_client", "notify"],
     # sources: reading the outside world into domain objects

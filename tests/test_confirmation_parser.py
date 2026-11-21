@@ -358,6 +358,31 @@ class TestVendorSenders(unittest.TestCase):
         self.assertFalse(out)
         self.assertEqual(out.reason, "not-an-application")
 
+    def test_a_stripped_platform_word_can_leave_a_generic_noun(self):
+        # "Recruiting Department" became the company "Department", and
+        # "System Generated" became "Generated", once the platform word in
+        # front of each came off.
+        for display in ("Recruiting Department", "System Generated",
+                        "HR Division", "Talent Office"):
+            out = cp.parse(msg("Thank you for your application",
+                               f"{display} <notifications@app.brightmove.com>"))
+            self.assertFalse(out, display)
+
+    def test_invisible_characters_are_stripped(self):
+        # One Munich Re subject carried seven zero-width spaces in front of
+        # the company name. Nothing shows them, and the key company_id builds
+        # from such a name matches no row on the sheet.
+        out = cp.parse(msg(
+            "Your application to \u200b\u200b\u200bMunich Re Group",
+            "Recruiting <noreply@munichre.com>"))
+        self.assertEqual(out.company, "Munich Re Group")
+
+    def test_a_role_hanging_off_a_subject_company_is_cut(self):
+        out = cp.parse(msg(
+            "Your application to Munich Re Group - Credit Research Analyst",
+            "Recruiting <noreply@mail.paylocity.com>"))
+        self.assertEqual(out.company, "Munich Re Group")
+
     def test_tenant_table_entries_are_reachable(self):
         """A table entry keyed on something _employer_slug never produces is
         dead weight that reads as coverage."""

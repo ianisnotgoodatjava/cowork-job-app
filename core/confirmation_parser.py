@@ -342,8 +342,15 @@ def _company_from_sender(from_header: str) -> str:
     return ""
 
 
+# Zero-width spaces, joiners and the BOM. A Munich Re subject arrived with
+# seven of them in front of the company name. Nothing shows them, and the
+# key company_id builds from such a name matches no row on the sheet.
+_INVISIBLE_RE = re.compile(r"[\u200b-\u200f\u2028\u2029\ufeff\u00ad]")
+
+
 def _clean(text: str) -> str:
-    text = re.sub(r"\s+", " ", (text or "").strip())
+    text = _INVISIBLE_RE.sub("", text or "")
+    text = re.sub(r"\s+", " ", text.strip())
     return text.strip(" -–—,:;!.")
 
 
@@ -562,8 +569,19 @@ def _validated(company: str, role: str, parser: str) -> Parsed | Skipped:
         return Skipped("company-too-short", company)
     if len(company) > 60:
         return Skipped("company-too-long", company[:40])
-    if company.lower().strip() in _NOT_A_COMPANY:
+    # One blocklist, checked on every path. These were two lists — the
+    # generic rules read _NOT_A_COMPANY and the ATS rules _NOT_AN_EMPLOYER —
+    # and they had already drifted: "HR Division" was refused by one and
+    # became the company "Division" through the other.
+    if company.lower().strip() in _NOT_A_COMPANY | _NOT_AN_EMPLOYER:
         return Skipped("company-blocklisted", company)
+    # "Munich Re Group - Credit Research Analyst": a company read out of a
+    # subject keeps whatever followed it, and _ROLE_TAIL_RE only knows a
+    # handful of opening words. Ask the role test about the tail instead.
+    head, dash, tail = company.partition(" - ")
+    if dash and _ROLE_LIKE_RE.match(tail.strip()) and len(head.strip()) > 2:
+        company = head.strip()
+        role = role or _tidy_role_text(tail.strip(), company)
     return Parsed(company=company, role=role or "", parser=parser)
 
 
@@ -617,6 +635,11 @@ _NOT_AN_EMPLOYER = {
     "enterprise", "humanresources", "human resources", "admin", "candidate",
     "people", "systemmessage", "automationmanager", "service", "support",
     "candidates", "candidate", "myhr", "employee", "onboarding", "inbox",
+    # What is left after a platform word is stripped: "Recruiting Department"
+    # leaves "Department", "System Generated" leaves "Generated". Both became
+    # companies on the sheet.
+    "department", "generated", "division", "unit", "office", "info",
+    "contact", "desk", "staffing", "personnel", "generic", "automated",
 }
 
 # Platform words glued into a Workday display name. They arrive in every

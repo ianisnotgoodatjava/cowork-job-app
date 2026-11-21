@@ -1,6 +1,6 @@
 """The command table, checked against the handlers it names.
 
-Sixty-one commands, most of which are run once a month or never. A handler
+Sixty-two commands, most of which are run once a month or never. A handler
 renamed or removed used to surface as an AttributeError the next time someone
 reached for that command, which could be months later and was — four
 undefined names once sat in auto_draft.py through a dozen nightly runs.

@@ -3,8 +3,8 @@
 A command-line tool that runs a job search end to end: it watches Gmail for
 applications, rejections and replies, keeps a Google Sheet in sync, finds a
 real person to contact at each company, and drafts outreach in your own
-writing voice. ~18k lines of Python across 84 modules in eight layers, and
-61 CLI commands under five verbs.
+writing voice. ~18k lines of Python across 86 modules in eight layers, and
+62 CLI commands under five verbs.
 
 Built for my own search — 700+ applications, 450+ outreach emails — so every
 design decision came from something that actually went wrong.
@@ -15,7 +15,7 @@ layer each module belongs to, and a test fails if any import points upward.
 of them was costing before.
 
 ```
-python cli.py --help              # the 61 commands, grouped by what they do
+python cli.py --help              # the 62 commands, grouped by what they do
 python cli.py auto                # the nightly pipeline
 python cli.py parser-accuracy     # score the confirmation parser, offline
 ```
@@ -26,6 +26,7 @@ python cli.py parser-accuracy     # score the confirmation parser, offline
 |---|---|
 | **Keeps the sheet honest** | Reads Gmail and classifies each thread: applied, rejected, interviewing, replied. Two scikit-learn classifiers catch wording the phrase rules miss. |
 | **Finds the contact** | Researches a real mid-level person at the company, verifies the name against published sources, and infers the address from the firm's own pattern — reporting whether it's *published*, *previously delivered to*, or *inferred*. |
+| **Finds a Taiwan connection** | After each application, looks for people at the firm who state a Taiwan link themselves (a school, employer, group, language or hometown), nearest the role first. A surname is never evidence. |
 | **Writes in your voice** | Drafts are conditioned on a retrieval index over your own past emails, not a generic template. |
 | **Follows up once** | Finds outreach that went quiet past *your measured* follow-up interval and drafts exactly one second touch. Never a third. |
 
@@ -349,6 +350,38 @@ built-in web search. Put `MODEL_API_KEY` in `.env` (get one at
 https://dev.meta.ai); `MUSE_MODEL` picks a different Muse model. Research lands in `logs/drafts/auto/` as text first — turn that
 into sheet contacts and Gmail drafts with `stage-drafts`, which re-reads the
 saved research rather than paying to research again.
+
+## Taiwan connections at the company
+
+After an application lands on the sheet, `watch` checks the firm once for
+people who share a Taiwan background, nearest the role first: same team, then
+same function, then anyone there. Any seniority, since a peer who shares your
+background is the likeliest reply of all.
+
+```bash
+python cli.py taiwan-connections --row 242                # one application
+python cli.py taiwan-connections --company "Moody's" --role "Credit Analyst"
+python cli.py taiwan-connections --row 242 --links-only   # free: searches to open yourself
+python cli.py taiwan-connections --days 14 --dry-run      # what the sweep would check
+python cli.py watch --no-taiwan                           # skip it for one pass
+```
+
+A connection has to be something the person published about themselves: a
+school in Taiwan (NTU, NCCU, NTHU, NYCU, NCKU, Taipei American School…), a
+Taiwanese employer, a Taiwanese professional or student group, Taiwanese
+(Hokkien) as a language, or a hometown or base in Taiwan. Every person comes
+with the URL that says so. `core/taiwan_signals.py` turns down the guesses:
+a surname (Chen and Lin are as common in Singapore as in Taipei), Mandarin
+alone, someone who *covers* Taiwan as a market, and namesake schools like
+Tsinghua (Beijing) or a bare "NTU" (often Nanyang). Each refusal is counted
+with its reason.
+
+It costs one Muse request per application, at most five per pass, and never
+more than once per application. A firm checked in the last 30 days isn't
+re-billed for a second role. With no key you still get the LinkedIn and web
+searches. LinkedIn is only linked to, never fetched. Findings go to
+`logs/taiwan_connections.json`, which is gitignored, so real people's names
+stay out of the repository.
 
 ## Following up
 

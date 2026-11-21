@@ -145,6 +145,8 @@ COMMANDS = [
             A('--min-fit', type=float, default=2.0),
             A('--no-draft', action="store_true",
               help='Skip the paid research/drafting step'),
+            A('--no-taiwan', action="store_true",
+              help='Skip checking new applications for Taiwan connections'),
         ),
     ),
     Command(
@@ -505,6 +507,29 @@ COMMANDS = [
         args=(
             A('--days', type=int, default=365),
             A('--dry-run', action="store_true"),
+        ),
+    ),
+    Command(
+        'taiwan-connections', 'source',
+        'People at the firm with a stated Taiwan connection, nearest the '
+        'role first — one application, or every new one',
+        "console.handlers:cmd_taiwan_connections",
+        args=(
+            A('--row', type=int, help='The application, by sheet row'),
+            A('--company', default='', help='Or name the company'),
+            A('--role', default='', help='The role applied to'),
+            A('--links-only', action="store_true",
+              help='Only print the free LinkedIn/web searches; no model '
+                   'request'),
+            A('--redo', action="store_true",
+              help='Research again even if this application was checked'),
+            A('--days', type=int, default=14,
+              help='With no --row/--company: check every unchecked '
+                   'application from the last N days'),
+            A('--limit', type=int, default=5,
+              help='Max applications to research in that sweep'),
+            A('--dry-run', action="store_true",
+              help='Sweep: show what would be researched, pay for nothing'),
         ),
     ),
     Command(

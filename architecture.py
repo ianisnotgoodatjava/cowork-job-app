@@ -29,7 +29,6 @@ LAYOUT = {
         "confirmation_parser",
              "app_identity", "company_aliases", "corrections", "job_title", "role_extract", "text_classifier", "job_posting",
              "resume_bank", "sender_profile", "linkedin_helper", "hook_forms",
-             # Written but never wired up: nothing imports it yet.
              "taiwan_signals"],
     # store: everything that touches the network or disk state
     "store": ["google_auth", "gmail_client", "sheets", "calendar_client", "notify"],
@@ -41,7 +40,7 @@ LAYOUT = {
     "people": ["people_finder", "edgar_finder", "team_pages", "people_search",
                "sourcing", "contact_finder", "contact_policy", "address_book",
                "company_formats", "findability",
-               "recent_contacts", "network_audit"],
+               "recent_contacts", "network_audit", "taiwan_connections"],
     # outreach: writing and managing drafts
     "outreach": ["draft_writer", "email_drafter", "auto_draft", "auto_outreach",
                  "batch_outreach", "bulk_draft", "draft_cleanup", "stage_drafts",

@@ -19,7 +19,7 @@ Measured at the start, and again after each step.
 |---|---|---|
 | Modules | 79, flat | 82 in 8 layers, checked by a test |
 | Layers with an upward import | — | 0 |
-| CLI subcommands | 60 | 61 |
+| CLI subcommands | 60 | 62 |
 | Imports deferred inside functions to break cycles | 45 in `cli.py` | 45, now for startup cost only |
 | Confirmation emails the parser cannot read | 18.4% | **4.2%** |
 | Offline test corpus for the parser | none | 1,437 real messages |

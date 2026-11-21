@@ -1,4 +1,4 @@
-"""The sixty-one handlers, one per command.
+"""The sixty-two handlers, one per command.
 
 They are adapters and nothing else: read an argparse Namespace, call into a
 layer, print. Forty-five of them are four lines long. The logic lives in the
@@ -308,7 +308,8 @@ def cmd_watch(args):
     from flows import watch
     watch.run(days_back=args.days, limit=args.limit, min_fit=args.min_fit,
               dry_run=args.dry_run, draft=not args.no_draft,
-              deep=getattr(args, "deep", None))
+              deep=getattr(args, "deep", None),
+              taiwan=not args.no_taiwan)
 
 
 def cmd_addresses(args):
@@ -503,6 +504,17 @@ def cmd_find_contact_link(args):
     url = linkedin_helper.people_search_url(args.company, args.keywords)
     print("Open this in your browser (LinkedIn requires a logged-in human, not automation):")
     print(url)
+
+
+def cmd_taiwan_connections(args):
+    from people import taiwan_connections
+    if args.row or args.company:
+        taiwan_connections.run(company=args.company, role=args.role,
+                               row=args.row, links_only=args.links_only,
+                               redo=args.redo)
+    else:
+        taiwan_connections.sweep(days_back=args.days, limit=args.limit,
+                                 dry_run=args.dry_run)
 
 
 def cmd_save_contact(args):

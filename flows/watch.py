@@ -40,7 +40,7 @@ def _row_key(row: dict) -> str:
 
 def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
         dry_run: bool = False, draft: bool = True,
-        deep: bool | None = None) -> None:
+        deep: bool | None = None, taiwan: bool = True) -> None:
     # The maintenance sweeps re-read the whole mailbox and cost minutes.
     # Running them on every pass would triple the work for changes that
     # only accumulate slowly, so they run once a day, on the late pass.
@@ -127,6 +127,17 @@ def run(days_back: int = 14, limit: int = 3, min_fit: float = 2.0,
     else:
         from outreach import draft_cleanup
         step(draft_cleanup.run, dry_run=False)
+
+    # One request per new application, once ever: who at the firm shares a
+    # Taiwan background, nearest the role. Runs right after the row lands,
+    # while the application is fresh enough for an introduction to matter.
+    print("\n[5c/7] Taiwan connections at new applications")
+    if not taiwan:
+        print("  skipped (--no-taiwan)")
+    else:
+        from people import taiwan_connections
+        step(taiwan_connections.sweep, days_back=days_back, limit=5,
+             dry_run=dry_run)
 
     print("\n[6/7] Housekeeping"
           f"{' (deep — once a day)' if deep else ' (light)'}")

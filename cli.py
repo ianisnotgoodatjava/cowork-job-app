@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_epilog(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # The sixty-one names made a usage line nobody could read. The epilog
+    # The sixty-two names made a usage line nobody could read. The epilog
     # lists them by group instead, and the metavar keeps argparse from
     # printing the whole set a second time.
     sub = parser.add_subparsers(dest="command", required=True,
